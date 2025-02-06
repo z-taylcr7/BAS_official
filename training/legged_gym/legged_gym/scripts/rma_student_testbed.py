@@ -42,16 +42,19 @@ import time
 
 RECORD_FRAMES = False
 MOVE_CAMERA = False
-override = False # if True, the robot will keep moving by overriding the position target
+override = False  # if True, the robot will keep moving by overriding the position target
 one_trial = False # if True, the robot will not reset after falling
 # train_ra = True
-# test_ra = False
+test_ra = False
 train_ra = False
-test_ra = True
+# test_ra = True
 record_perf = False
 visualize_ra = False
-rma_teacher= False
-
+override_lat = False
+RA_enabled=True
+DR_enabled=False
+base_DR_enabled=True
+agile_only=False
 difficulty = 2  # 0: easy; 1: medium, 2: hard
 init_obst_xy = [[-3., 8., -2.5, 2.5], [-3., 8., -2.5, 2.5], [1.5, 7., -2., 2.]]  # xmin, xmax, ymin, ymax, for easy/medium/hard
 if train_ra: difficulty = 1
@@ -113,12 +116,10 @@ def sample_obstacle_test(xmin, xmax, ymin, ymax, n_env, n_obj, safedist=0.75):
     obj_pos_sampled[:,1,:] = obj_pos_sampled[:,1,:] * (torch.abs(diffy)>=safedist) + (torch.sign(diffy)*safedist + y_curve) * (torch.abs(diffy)<safedist)
     return obj_pos_sampled
 
+def save_encoder(encoder, path):
+    torch.jit.save(encoder, path)
+
 def play(args):    
-    cnt = 0
-    counts=[]
-    DR_enabled = False
-    base_DR_enabled = True
-    agile_only = False
     if args.test:
         print("Testing mode")
         test_ra = not agile_only
@@ -126,6 +127,9 @@ def play(args):
     else:
         train_ra = True
         test_ra = False
+    if args.checkpoint is None: args.checkpoint=-1
+    cnt = 0
+    counts=[]
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = args.num_envs
@@ -135,41 +139,32 @@ def play(args):
     # env_cfg.terrain.mesh_type = "plane"
     env_cfg.terrain.terrain_types = ['flat']  # do not duplicate!
     env_cfg.terrain.terrain_proportions = [0.5]
-    env_cfg.noise.add_noise = train_ra
+    env_cfg.noise.add_noise = True
     env_cfg.noise.noise_level = 0.0 # allow hallucination
-
-    # env privileges settings
-    exim=False
-    env_cfg.env.privilege_enable = False
-    # env_cfg.env.num_observations = 61
-    train_cfg.policy.decoder_enabled=False
-    train_cfg.policy.use_privi_estimation = False
 
     env_cfg.domain_rand.randomize_friction = True
     if not base_DR_enabled: env_cfg.domain_rand.friction_range = [1.0, 1.0] # (1 - x)/2
     # if train_ra: env_cfg.domain_rand.friction_range = [-0.4, -0.4] # (1 - x)/2
+
     env_cfg.domain_rand.randomize_base_mass = True
-    
-    if not base_DR_enabled:
-        env_cfg.domain_rand.base_mass_range = [0.0, 0.0]
-    else:
-        env_cfg.domain_rand.base_mass_range = [0.0, 12.0]
-        
     if args.payload is not None:
         env_cfg.domain_rand.added_mass_range = [args.payload, args.payload]
-    env_cfg.domain_rand.push_robots = False
+    else:
+        env_cfg.domain_rand.added_mass_range = [0.0, 10.0]
+    if not base_DR_enabled:
+        env_cfg.domain_rand.added_mass_range = [0.0, 0.0]
+    env_cfg.domain_rand.push_robots = True
     env_cfg.domain_rand.max_push_vel_xy = 0.0
     env_cfg.domain_rand.randomize_dof_bias = False
     env_cfg.domain_rand.erfi = False
-    env_cfg.domain_rand.randomize_kp_kd = False
+    env_cfg.domain_rand.randomize_kp_kd = True
     if not DR_enabled:
-        env_cfg.domain_rand.kp_range = [1.0, 1.0]
-        env_cfg.domain_rand.kd_range = [1.0, 1.0]
-    env_cfg.domain_rand.external_push_robots = DR_enabled
-    if not base_DR_enabled:
-        env_cfg.domain_rand.com_pos_x_range = [0.0, 0.0]
-        env_cfg.domain_rand.com_pos_y_range = [0.0, 0.0]
-        env_cfg.domain_rand.com_pos_z_range = [0.0, 0.0]
+        env_cfg.domain_rand.kp_range=[1,1]
+        env_cfg.domain_rand.kd_range=[1,1]
+    env_cfg.domain_rand.external_push_robots = False
+    # env_cfg.domain_rand.com_pos_x_range = [0.0, 0.0]
+    # env_cfg.domain_rand.com_pos_y_range = [0.0, 0.0]
+    # env_cfg.domain_rand.com_pos_z_range = [0.0, 0.0]
 
 
     # env_cfg.domain_rand.randomize_yaw = False
@@ -177,6 +172,11 @@ def play(args):
     env_cfg.domain_rand.init_yaw_range = [-3.14159,3.14159]
     env_cfg.domain_rand.init_x_range = [-0.1,0.1]
     env_cfg.domain_rand.init_y_range = [-0.1,0.1]
+    if not DR_enabled:
+        env_cfg.domain_rand.com_pos_x_range = [-0.0, 0.0]
+        env_cfg.domain_rand.com_pos_y_range = [-0.0, 0.0]
+        env_cfg.domain_rand.com_pos_z_range = [0.05, 0.05]
+        
     if test_ra: 
         env_cfg.domain_rand.randomize_timer_minus = 0.0
         env_cfg.asset.object_files = {'{LEGGED_GYM_ROOT_DIR}/resources/objects/cylindar.urdf': 0.415} # slightly compensate for noise
@@ -235,23 +235,46 @@ def play(args):
     obs = env.get_observations()
     env.terrain_levels[:] = 9
     # load policy
+
+    obs_history = torch.zeros(env_cfg.env.num_envs, train_cfg.policy.history_length, 50).to("cuda")
+
     train_cfg.runner.resume = True
-    # ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
-    
-    policy = torch.jit.load("legged_gym/logs/go1_pos_rough/abs/model_15000.pt").cuda()
-    policy_name = "absmodel_15000.pt"
+    log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
+    path = os.path.join(log_root, args.load_run, 'model_'+str(args.checkpoint)+'.pt')
+    ppo_runner, train_cfg = task_registry.make_student_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
+    # if args.load_run.count('teacher') > 0:
+    #     ppo_runner.load(path = path)
+    #     policy = ppo_runner.get_inference_policy(device=env.device)
+    ppo_runner.load(path = path, load_optimizer = False, load_student_encoder = True)
+    policy, student_encoder = ppo_runner.get_inference_policy_and_encoder(device=env.device)
+    student_encoder.eval()
     # policy = ppo_runner.get_inference_policy(device=env.device)
-    # policy_name = str(task_registry.loaded_policy_path.split('/')[-2]) + str(task_registry.loaded_policy_path.split('/')[-1])
+    policy_name = str(path.split('/')[-2]) + str(path.split('/')[-1])
+    
+    # export policy as a jit module (used to run it from C++)
+    path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
+    
+    export_policy_as_jit(ppo_runner.alg.actor_critic, path, policy_name)
+    print('Exported policy as jit script to: ', os.path.join(path, policy_name))
+    # export encoder
+    def save_encoder(encoder, path):
+        sc = torch.jit.script(encoder)
+        torch.jit.save(sc, path)
+    path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'encoders')
+    os.makedirs(path, exist_ok=True)
+    save_encoder(student_encoder, os.path.join(path, policy_name[:-3] + '_encoder.pt'))
+   
+        
+        
     # print('\nLoaded policy from: {}\n'.format(task_registry.loaded_policy_path))
+
 
     camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
 
-    latent_dim = 12 if rma_teacher else 0
-
-    ra_vf = nn.Sequential(nn.Linear(19+latent_dim,64),nn.ReLU(),nn.Linear(64,64),nn.ReLU(),nn.Linear(64,1), nn.Tanh())
+    ra_vf = nn.Sequential(nn.Linear(19+12,64),nn.ReLU(),nn.Linear(64,64),nn.ReLU(),nn.Linear(64,1), nn.Tanh())
     ra_vf.to('cuda')
     optimizer = torch.optim.SGD(ra_vf.parameters(), lr=0.002, momentum=0.0)
 
@@ -268,8 +291,9 @@ def play(args):
         RA_name = policy_name[:-3] + '_ra' + '.pt'
         ra_vf = torch.load(os.path.join(path, RA_name))
         print('loaded value from', os.path.join(path, RA_name))
-        rec_policy_path = LEGGED_GYM_ROOT_DIR + r"/resources/policy/recover_v4_twist.pt"
         # rec_policy_path = LEGGED_GYM_ROOT_DIR + r"/logs/go1_rec_rough/exported/policies/rec_robustmodel_6000.pt"
+        rec_policy_path = LEGGED_GYM_ROOT_DIR + r"/resources/policy/recover_v4_twist.pt"
+        # rec_policy_path = LEGGED_GYM_ROOT_DIR + r"/logs/go1_rec_rough/exported/policies/posmodel_6000.pt"
         rec_policy = torch.jit.load(rec_policy_path).cuda()
         print('loaded recovery policy from',rec_policy_path)
         mode_running = True # if False: recovery
@@ -277,20 +301,26 @@ def play(args):
     standard_raobs_init = torch.Tensor([[0,0,0,0,0,0,6.,0]+[0.,0.,0.,1.,1.,2.,2.,1.,0.,0.,0.]]).to(env.device)
     standard_raobs_die = torch.Tensor([[5.,0,0,0,0,0,6.,0]+[-2.5]*11]).to(env.device)
     standard_raobs_turn = torch.Tensor([[0,0,0,0,0,2.0, 0.5,5.8]+[2.0]*6+[0.0]*5]).to(env.device)
+    standard_latent_init = torch.zeros(1,12).to(env.device)
+    # standard_raobs_init= torch.cat([standard_raobs_init, standard_latent_init], dim=1)
+    # standard_raobs_turn = torch.cat([standard_raobs_turn, standard_latent_init], dim=1)
+    # standard_raobs_die = torch.cat([standard_raobs_die, standard_latent_init], dim=1)
     ra_obs = standard_raobs_init.clone().repeat(env.num_envs,1)
+    student_latent = torch.zeros((env.num_envs, 12)).to(env.device)
+    ra_obs = torch.cat([ra_obs, student_latent], dim=-1)
 
     collision = torch.zeros(env.num_envs).to(env.device).bool()
 
     queue_len = 1001
     batch_size = 200
     hindsight = 10
-    s_queue = torch.zeros((queue_len,env.num_envs,19), device = env.device, dtype=torch.float)
+    s_queue = torch.zeros((queue_len,env.num_envs,19+12), device = env.device, dtype=torch.float)
     g_queue = torch.zeros((queue_len,env.num_envs), device = env.device, dtype=torch.float)
     g_hs_queue = g_queue.clone()
     g_hs_span = torch.zeros((2,env.num_envs), device = env.device, dtype=torch.int) # start and end index of the latest finished episode
     l_queue = torch.zeros((queue_len,env.num_envs), device = env.device, dtype=torch.float)
     done_queue = torch.zeros((queue_len,env.num_envs), device = env.device, dtype=torch.bool)
-
+    z_queue = torch.zeros((queue_len,env.num_envs,12), device = env.device, dtype=torch.float)
     alive = torch.ones_like(env.reset_buf)
 
 
@@ -367,14 +397,14 @@ def play(args):
             env.timer_left[env.timer_left<0.05] = 0.05
             print('step',i,'survive rate',alive.float().mean().item())
 
-        actions = policy(obs.detach()) * alive.unsqueeze(1)
+        concat_obs = torch.cat([obs[:,:61], student_latent], dim=-1)
+        actions = policy(concat_obs.detach()) * alive.unsqueeze(1)
         
         if test_ra:
             v_pred = ra_vf(ra_obs)
-            start_v = ra_vf(standard_raobs_init).mean().item()
-            die_v = ra_vf(standard_raobs_die).mean().item() 
-            turn_v = ra_vf(standard_raobs_turn).mean().item()
-
+            start_v = ra_vf(torch.cat([standard_raobs_init,student_latent[0:1]],dim=-1)).item()
+            die_v = ra_vf(torch.cat([standard_raobs_die,student_latent[0:1]],dim=-1)).item()
+            turn_v = ra_vf(torch.cat([standard_raobs_turn,student_latent[0:1]],dim=-1)).item()
 
             # print('RA: for a standard init state: %.3f, die state: %.3f, turn state: %.3f'%(start_v, die_v, turn_v))
             # print('dist',torch.norm(obs[:,10:12], dim=-1), 'col last frame?',collision)
@@ -387,7 +417,7 @@ def play(args):
                 print('nooooooo i died!')
                 time.sleep(5.0)
             
-            if where_recovery.shape[0] > 0:
+            if where_recovery.shape[0] > 0 and RA_enabled:
                 #import ipdb; ipdb.set_trace()
                 episode_recovery_logging[where_recovery] = True
                 current_recovery_status[where_recovery] = True
@@ -403,7 +433,7 @@ def play(args):
                     # twist_ra_obs = torch.cat([twist_iter[...,0:2], env.base_lin_vel[:,2:3], env.base_ang_vel[:,0:2], twist_iter[...,2:3], obs[:,10:12], obs[:,-11:]],dim=-1)
                     twist_ra_obs = torch.cat([twist_iter[...,0:2], env.base_lin_vel[where_recovery,2:3], env.base_ang_vel[where_recovery,0:2], twist_iter[...,2:3], obs[where_recovery,10:12], obs[where_recovery,50:61]],dim=-1)
                     x_iter, y_iter, _ = get_pos_integral(twist_iter, twist_tau)
-                    ra_value = ra_vf(twist_ra_obs)
+                    ra_value = ra_vf(torch.cat([twist_ra_obs, student_latent[where_recovery]], dim=-1))
                     # old_loss = twist_lam * (ra_value + 2*twist_eps).clip(min=0) + 0.02*((x_iter-obs[where_recovery,10:11])**2 + (y_iter-obs[where_recovery,11:12])**2)
                     # print('old loss',old_loss.mean().item()) # old loss = loss if dim=1
                     loss_separate = twist_lam * (ra_value + 2*twist_eps).clip(min=0).squeeze(-1) + 0.02*(((x_iter-obs[where_recovery,10:11].squeeze(-1))**2) + ((y_iter-obs[where_recovery,11:12].squeeze(-1))**2))
@@ -431,6 +461,14 @@ def play(args):
         ####### the step is here #######
         obs, _, rews, dones, infos = env.step(actions.detach())
         ####### the step is upward #######
+        obs_history = torch.cat([obs_history[:,1:], obs[:,:50].unsqueeze(1)], dim=1)
+        student_latent = student_encoder(obs_history).to(env.device).detach().clone()
+        if override_lat:
+            # print(student_latent[0]) # check the latent
+            student_latent = torch.rand((env.num_envs, 12)).to(env.device)-0.5
+            # print(student_latent[0]) # check the latent
+            
+        # print('student_latent', student_latent[0])
         collision = torch.any(torch.norm(env.contact_forces[:, env.termination_contact_indices, :], dim=-1) > 1., dim=1)  
         hor_footforce = env.contact_forces[:, env.feet_indices[:2],0:2].norm(dim=-1)
         ver_footforce = torch.abs(env.contact_forces[:, env.feet_indices[:2],2])
@@ -497,24 +535,23 @@ def play(args):
             episode_max_velo_dist_collision += episode_max_velo[where_collision].sum().item()
             episode_max_velo_dist_reach += episode_max_velo[where_reach].sum().item()
             episode_max_velo_dist_timeout += episode_max_velo[where_timeout].sum().item()
-            if cnt <11000:
+            if cnt <10000 and test_ra:
                 count = torch.cat([
                         -episode_max_velo[where_collision], # count
                         0*episode_max_velo[where_timeout], # count
                         episode_max_velo[where_reach], # count
                     ], dim=0
                 )
-                if cnt>1000:
-                    counts.append(count)
+                counts.append(count)
                 cnt+=len(count)
                 print('count', count)
-            elif cnt >= 11000:
+            elif cnt >= 10000:
                 from matplotlib import pyplot as plt
-                os.makedirs(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr'), exist_ok=True)
                 counts = torch.cat(counts, dim=0)
-                np.save(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr',policy_name[:-3] + 'counts.npy'), counts.cpu().numpy())
+                np.save(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr') + policy_name[:-3] + 'counts.npy', counts.cpu().numpy())
                 plt.hist(counts.cpu().numpy(), bins=100)
-                plt.savefig(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr', policy_name[:-3] + 'hist.png'))
+                os.makedirs(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr'), exist_ok=True)
+                plt.savefig(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr') + policy_name[:-3] + 'hist.png')
                 plt.show()
                 print('histogram saved')
                 exit()
@@ -560,7 +597,7 @@ def play(args):
             avg_total_dist = total_travel_dist / (total_episode + 1e-8)
             avg_total_time = total_time / (total_episode + 1e-8)
 
-            avg_total_velocity = avg_total_dist / (avg_total_time + 1e-8)
+            avg_total_velocity = avg_total_dist / avg_total_time
             avg_collision_velocity = avg_collision_dist / (avg_collision_time + 1e-8)
             avg_reach_velocity = avg_reach_dist / (avg_reach_time + 1e-8)
             avg_timeout_velocity = avg_timeout_dist / (avg_timeout_time + 1e-8)
@@ -650,12 +687,7 @@ def play(args):
         # contact_forces refresh is before done-reset-obs so it is at "t-1"
         if one_trial: alive = torch.logical_and(alive, ~collision)
 
-        
-        if rma_teacher:
-            latent = ppo_runner.alg.actor_critic.get_latent_vector(obs)
-            ra_obs = torch.cat([env.base_lin_vel, env.base_ang_vel, obs[:,10:12], obs[:,50:61], latent], dim=-1)
-
-        ra_obs = torch.cat([env.base_lin_vel, env.base_ang_vel, obs[:,10:12], obs[:,50:61] ], dim=-1)
+        ra_obs = torch.cat([env.base_lin_vel, env.base_ang_vel, obs[:,10:12], obs[:,50:61],student_latent], dim=-1)
 
         if train_ra:
             ## ls <=0: reach target; gs >0: failure
@@ -666,10 +698,12 @@ def play(args):
             g_queue[:-1] = g_queue[1:].clone()
             l_queue[:-1] = l_queue[1:].clone()
             done_queue[:-1] = done_queue[1:].clone()
+            z_queue[:-1] = z_queue[1:].clone()
             s_queue[-1] = ra_obs.clone()
             g_queue[-1] = gs.clone()  # note that g is obtained before done and reset and obs
             l_queue[-1] = ls.clone()
             done_queue[-1] = dones.clone()  # note that s is obtained after done and reset
+            z_queue[-1] = student_latent.clone()
             ## hindsight ######
             g_hs_queue[:-1] = g_hs_queue[1:].clone()
             g_hs_queue[-1] = gs.clone()
@@ -691,9 +725,10 @@ def play(args):
             if i > queue_len and i % 20 == 0:
                 false_safe, false_reach, n_fail, n_reach, accu_loss = 0, 0, 0, 0, []
                 total_n_fail, total_n_reach = torch.logical_and(g_queue[1:]>0, done_queue[1:]).sum().item(), torch.logical_and(l_queue[:-1]<=0,done_queue[1:]).sum().item()
-                start_v = ra_vf(standard_raobs_init).mean().item()
-                die_v = ra_vf(standard_raobs_die).mean().item() 
-                turn_v = ra_vf(standard_raobs_turn).mean().item()
+                start_v = ra_vf(torch.cat([standard_raobs_init,student_latent[0:1]],dim=-1)).item()
+                die_v = ra_vf(torch.cat([standard_raobs_die,student_latent[0:1]],dim=-1)).item()
+                turn_v = ra_vf(torch.cat([standard_raobs_turn,student_latent[0:1]],dim=-1)).item()
+
                 weight_end = 0.0 # max(0.0, 10.0 - i/2000 - 1.0)  # will later be added one
                 gamma = 0.999999 # min(0.999999, 1-0.2*(0.5**float(np.floor(20.001*i/50000))))
                 print('weight of end %.3f'%(weight_end+1), 'total_n_fail',total_n_fail,'total_n_reach',total_n_reach,'gamma', gamma)
@@ -721,7 +756,7 @@ def play(args):
                 print('value RA loss %.4f, false safe rate %.2f in %d, false reach rate %.2f in %d, standard values init %.2f die %.2f turn %.2f, step %d'%\
                                 (new_loss, false_safe/(n_fail+1e-8), n_fail, false_reach/(n_reach+1e-8), n_reach, start_v, die_v, turn_v, i), end='   \n')
                 
-                if false_safe/(n_fail+1e-8) < best_metric and die_v > 0.2 and start_v<-0.1 and turn_v<-0.1 and i > 3000:
+                if false_safe/(n_fail+1e-8) < best_metric and die_v > 0.1 and start_v<-0.1 and turn_v<-0.1 and i > 1000:
                     best_metric = false_safe/(n_fail+1e-8)
                     path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA')
                     try:
@@ -729,6 +764,7 @@ def play(args):
                     except:
                         pass
                     RA_name = policy_name[:-3] + '_ra' + '.pt'
+                    os.makedirs(path,exist_ok=True)
                     torch.save(ra_vf, os.path.join(path, RA_name))
                     print('\x1b[6;30;42m', 'saving ra model to', os.path.join(path, RA_name), '\x1b[0m' )
         if override: 

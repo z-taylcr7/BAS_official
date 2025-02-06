@@ -8,7 +8,7 @@ torch_model = torch.load(model_path)
 torch_model.eval()
 
 # Provide example input to the model (input_shape should match the input shape of your model)
-example_input = torch.randn(49) # observation dimension: agile policy 61 dim, ra 19dim, recovery policy 49dim
+example_input = torch.randn(49) # observation dimension: agile policy 61+5 dim, ra 19dim, recovery policy 49dim
 
 # Export the model to ONNX format
 path_list = model_path.split("/")

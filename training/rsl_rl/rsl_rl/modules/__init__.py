@@ -31,3 +31,6 @@
 from .actor_critic import ActorCritic
 from .actor_critic_recurrent import ActorCriticRecurrent
 from .actor_critic_cost import ActorCriticCost
+from .actor_critic_estimator import ActorCriticEstimator
+from .actor_critic_student_cost import StudentActorCriticCost
+from .actor_critic_teacher_cost import TeacherActorCriticCost

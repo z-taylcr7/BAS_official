@@ -28,9 +28,39 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
-from .on_policy_runner import OnPolicyRunner
-from .on_policy_runner_cost import OnPolicyRunnerCost
-from .on_policy_estimator_runner import OnPolicyEstimatorRunner
-from .student_policy_runner_cost import TrainStudentRunnerCost
-from .teacher_policy_runner_cost import TrainTeacherRunnerCost
-from .tcn_encoder import TcnEncoder
+
+
+import numpy as np
+import os
+from datetime import datetime
+
+import isaacgym
+from legged_gym.envs import *
+from legged_gym.utils import get_args, task_registry, helpers
+import torch
+from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
+
+def train(args):
+    env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
+
+    train_cfg.runner.run_name = 'teacher'
+
+    env, env_cfg = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    ppo_runner, train_cfg = task_registry.make_teacher_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
+    log_dir = ppo_runner.log_dir
+    env_cfg_dict = helpers.class_to_dict(env_cfg)
+    train_cfg_dict = helpers.class_to_dict(train_cfg)
+    # Save cfgs
+    os.makedirs(log_dir, exist_ok=True)
+    import json
+    with open(os.path.join(log_dir, 'env_cfg.json'), 'w') as f:
+        json.dump(env_cfg_dict, f, indent=4)
+    with open(os.path.join(log_dir, 'train_cfg.json'), 'w') as f:
+        json.dump(train_cfg_dict, f, indent=4)
+    
+    ppo_runner.learn(num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=True)
+
+if __name__ == '__main__':
+    args = get_args()
+    args.rl_device = args.sim_device
+    train(args)

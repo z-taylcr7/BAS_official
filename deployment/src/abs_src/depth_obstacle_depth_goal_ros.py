@@ -364,6 +364,11 @@ if __name__ == '__main__':
     input_name = policy_session.get_inputs()[0].name
     output_name = policy_session.get_outputs()[0].name
 
+    onnx_estimator_path = 'PATH_TO_YOUR_ESTIMATOR_ONNX_MODEL.onnx'
+    estimator_session = onnxruntime.InferenceSession(onnx_estimator_path)
+    estimator_input_name = estimator_session.get_inputs()[0].name
+    estimator_output_name = estimator_session.get_outputs()[0].name
+
     
     onnx_rec_model_path = 'PATH_TO_YOUR_RECOVERY_ONNX_MODEL.onnx'
     rec_policy_session = onnxruntime.InferenceSession(onnx_rec_model_path)
@@ -393,6 +398,8 @@ if __name__ == '__main__':
     RA_inference_time = 0
     mocap_time = 0
     stop_sign = False
+
+    history = np.zeros(1, 50, 50)
 
     GOAL_XYZ = [7,  0, 0]
     HOME_XYZ = [0, 0, 0]
@@ -454,6 +461,9 @@ if __name__ == '__main__':
 
         obs = make_observation_from_lowhigh_state(low_state=low_state, last_action=last_action, timestep_50hz=timestep_50hz, lidar_obs=lidar_obs, turn=turn, position_xy_rotation_z_obs=position_xy_rotation_z_obs, goal_xyz=goal_xyz)
 
+        history = np.roll(history, 1, axis=1)
+        history[0, 0] = obs[:50]
+        
         if time_idx % 4 == 0:
             start = time.time()
             action = policy_session.run([output_name], {input_name: obs})[0]

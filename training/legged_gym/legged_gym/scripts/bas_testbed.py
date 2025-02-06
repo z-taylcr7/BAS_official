@@ -40,18 +40,30 @@ import torch
 import torch.nn as nn
 import time
 
+agile_only = False
+
+override_pr = False
+override = False # if True, the robot will keep moving by overriding the position target
+
 RECORD_FRAMES = False
 MOVE_CAMERA = False
-override = False # if True, the robot will keep moving by overriding the position target
 one_trial = False # if True, the robot will not reset after falling
-# train_ra = True
-# test_ra = False
-train_ra = False
-test_ra = True
+train_ra = True
+test_ra = False
+# train_ra = False
+# test_ra = True
 record_perf = False
-visualize_ra = False
-rma_teacher= False
-
+visualize_ra = True
+ra_enabled = True
+use_gt_pr_trained_ra = False
+use_gt_privileged_info = False
+privileged_dim = 5
+privileged_obs = torch.zeros(1000, privileged_dim).to("cuda")
+default_privileged_obs = 0.00*torch.ones(1, privileged_dim).to("cuda")
+default_privileged_obs[0,1] = 1.0
+default_privileged_obs[0,-1] = -1.0
+default_die_privileged_obs =0.00*torch.ones(1, privileged_dim).to("cuda")
+default_die_privileged_obs[0,0] = 12.0
 difficulty = 2  # 0: easy; 1: medium, 2: hard
 init_obst_xy = [[-3., 8., -2.5, 2.5], [-3., 8., -2.5, 2.5], [1.5, 7., -2., 2.]]  # xmin, xmax, ymin, ymax, for easy/medium/hard
 if train_ra: difficulty = 1
@@ -113,20 +125,13 @@ def sample_obstacle_test(xmin, xmax, ymin, ymax, n_env, n_obj, safedist=0.75):
     obj_pos_sampled[:,1,:] = obj_pos_sampled[:,1,:] * (torch.abs(diffy)>=safedist) + (torch.sign(diffy)*safedist + y_curve) * (torch.abs(diffy)<safedist)
     return obj_pos_sampled
 
-def play(args):    
-    cnt = 0
-    counts=[]
-    DR_enabled = False
-    base_DR_enabled = True
-    agile_only = False
-    if args.test:
-        print("Testing mode")
-        test_ra = not agile_only
-        train_ra = False
-    else:
-        train_ra = True
-        test_ra = False
+def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
+    train_ra = args.trainRA
+    test_ra = args.testRA
+    print('train RA:', train_ra, ';test RA:', test_ra)
+    global difficulty
+    if train_ra: difficulty = 1
     # override some parameters for testing
     env_cfg.env.num_envs = args.num_envs
     env_cfg.terrain.num_rows = 3
@@ -134,46 +139,35 @@ def play(args):
     env_cfg.terrain.curriculum = False
     # env_cfg.terrain.mesh_type = "plane"
     env_cfg.terrain.terrain_types = ['flat']  # do not duplicate!
+    # env_cfg.terrain.terrain_types = ['rough']  # do not duplicate!
     env_cfg.terrain.terrain_proportions = [0.5]
     env_cfg.noise.add_noise = train_ra
-    env_cfg.noise.noise_level = 0.0 # allow hallucination
-
-    # env privileges settings
-    exim=False
-    env_cfg.env.privilege_enable = False
-    # env_cfg.env.num_observations = 61
-    train_cfg.policy.decoder_enabled=False
-    train_cfg.policy.use_privi_estimation = False
-
-    env_cfg.domain_rand.randomize_friction = True
-    if not base_DR_enabled: env_cfg.domain_rand.friction_range = [1.0, 1.0] # (1 - x)/2
-    # if train_ra: env_cfg.domain_rand.friction_range = [-0.4, -0.4] # (1 - x)/2
-    env_cfg.domain_rand.randomize_base_mass = True
-    
-    if not base_DR_enabled:
-        env_cfg.domain_rand.base_mass_range = [0.0, 0.0]
+    if train_ra:
+        env_cfg.noise.noise_level = 0.05 
     else:
-        env_cfg.domain_rand.base_mass_range = [0.0, 12.0]
-        
+        env_cfg.noise.noise_level = 0.0 # allow hallucination
     if args.payload is not None:
         env_cfg.domain_rand.added_mass_range = [args.payload, args.payload]
+    else:
+        env_cfg.domain_rand.added_mass_range = [-2.0, 12.0]
+    env_cfg.domain_rand.randomize_friction = True
+    # env_cfg.domain_rand.friction_range = [-0.5, -0.4] # (1 - x)/2
+    # if train_ra: env_cfg.domain_rand.friction_range = [-0.4, -0.2] # (1 - x)/2
+    env_cfg.domain_rand.randomize_base_mass = True
+    env_cfg.domain_rand.external_push_robots = False
+    env_cfg.domain_rand.randomize_kp_kd = False
+
     env_cfg.domain_rand.push_robots = False
     env_cfg.domain_rand.max_push_vel_xy = 0.0
     env_cfg.domain_rand.randomize_dof_bias = False
     env_cfg.domain_rand.erfi = False
-    env_cfg.domain_rand.randomize_kp_kd = False
-    if not DR_enabled:
-        env_cfg.domain_rand.kp_range = [1.0, 1.0]
-        env_cfg.domain_rand.kd_range = [1.0, 1.0]
-    env_cfg.domain_rand.external_push_robots = DR_enabled
-    if not base_DR_enabled:
-        env_cfg.domain_rand.com_pos_x_range = [0.0, 0.0]
-        env_cfg.domain_rand.com_pos_y_range = [0.0, 0.0]
-        env_cfg.domain_rand.com_pos_z_range = [0.0, 0.0]
+    env_cfg.domain_rand.com_pos_x_range = [-0.05, 0.05]
+    env_cfg.domain_rand.com_pos_y_range = [-0.05, 0.05]
+    env_cfg.domain_rand.com_pos_z_range = [0.05, 0.15]
+    
 
-
-    # env_cfg.domain_rand.randomize_yaw = False
-    # env_cfg.domain_rand.randomize_xy = False
+    env_cfg.domain_rand.randomize_yaw = False
+    env_cfg.domain_rand.randomize_xy = False
     env_cfg.domain_rand.init_yaw_range = [-3.14159,3.14159]
     env_cfg.domain_rand.init_x_range = [-0.1,0.1]
     env_cfg.domain_rand.init_y_range = [-0.1,0.1]
@@ -185,14 +179,21 @@ def play(args):
     env_cfg.domain_rand.init_dof_factor = [1.0,1.0]
     env_cfg.domain_rand.stand_bias3 = [0.0, 0.2, -0.3]
 
+    v_pred = torch.zeros(args.num_envs,1).to("cuda")
+
     if difficulty == 0:
         print('note it is easy mode')
         env_cfg.asset.object_num = 3
+    if difficulty == 1:
+        print('difficulty: normal')
+    if difficulty == 2:
+        print('difficulty: hard')
 
     env_cfg.asset.test_mode = True
     env_cfg.asset.test_obj_pos = [[[1.5, 1.5, 2.6,3.0,3.7,4.3,5.2,5.8],[-1.0,1.0,-0.7,0.8,-0.85,-0.3,1.1,0.45]],]
     env_cfg.asset.test_obj_pos = torch.Tensor(env_cfg.asset.test_obj_pos).to("cuda")
     env_cfg.asset.test_obj_pos = env_cfg.asset.test_obj_pos[:,:,:env_cfg.asset.object_num]
+    # print('test_obj_pos', env_cfg.asset.test_obj_pos)
     env_cfg.asset.test_obj_pos = env_cfg.asset.test_obj_pos.repeat(env_cfg.env.num_envs,1,1)
     if train_ra:
         env_cfg.asset.test_obj_pos[1:,0,:] = env_cfg.asset.test_obj_pos[1:,0,:].uniform_(init_obst_xy[difficulty][0],init_obst_xy[difficulty][1])
@@ -212,6 +213,9 @@ def play(args):
     env_cfg.commands.ranges.pos_1 = [6.0,7.5]
     env_cfg.commands.ranges.pos_2 = [-1.5,1.5]
     env_cfg.commands.ranges.heading = [0.0,0.0]
+    
+
+    obs_history = torch.zeros(env_cfg.env.num_envs, train_cfg.policy.history_length, 50).to("cuda")
 
     env_cfg.asset.terminate_after_contacts_on = ["base", 'FL_thigh', "FL_calf", "FR_thigh", "FR_calf"]
 
@@ -233,31 +237,32 @@ def play(args):
     env.check_termination = new_check_termination
     env.debug_viz = True
     obs = env.get_observations()
+    obs = torch.cat((obs,torch.zeros(env.num_envs, privileged_dim).to("cuda")), dim=-1)
     env.terrain_levels[:] = 9
     # load policy
     train_cfg.runner.resume = True
-    # ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
-    
-    policy = torch.jit.load("legged_gym/logs/go1_pos_rough/abs/model_15000.pt").cuda()
-    policy_name = "absmodel_15000.pt"
-    # policy = ppo_runner.get_inference_policy(device=env.device)
-    # policy_name = str(task_registry.loaded_policy_path.split('/')[-2]) + str(task_registry.loaded_policy_path.split('/')[-1])
-    # print('\nLoaded policy from: {}\n'.format(task_registry.loaded_policy_path))
+    ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
+    policy = ppo_runner.get_inference_policy(device=env.device)
+    policy_name = str(task_registry.loaded_policy_path.split('/')[-2]) + str(task_registry.loaded_policy_path.split('/')[-1])
+    print('\nLoaded policy from: {}\n'.format(task_registry.loaded_policy_path))
 
     camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
 
-    latent_dim = 12 if rma_teacher else 0
+    # estimator_path = '' # type your filepath here
+    estimator = ppo_runner.privileged_obs_estimator.model
+    estimator.eval()
+    p_obs = torch.zeros(args.num_envs, privileged_dim).to("cuda")
 
-    ra_vf = nn.Sequential(nn.Linear(19+latent_dim,64),nn.ReLU(),nn.Linear(64,64),nn.ReLU(),nn.Linear(64,1), nn.Tanh())
+    ra_vf = nn.Sequential(nn.Linear(19+privileged_dim,64),nn.ReLU(),nn.Linear(64,64),nn.ReLU(),nn.Linear(64,1), nn.Tanh())
     ra_vf.to('cuda')
     optimizer = torch.optim.SGD(ra_vf.parameters(), lr=0.002, momentum=0.0)
 
     if train_ra:
         best_metric = 999.
-        path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA', policy_name[:-3] + '_ra' + '.pt')
+        path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr', policy_name[:-3] + ('_ra_c' if continuous_RA else '_ra') + '.pt')
         if os.path.isfile(path):
             _load = input('load existing value? y/n\n')
             if _load != 'n':
@@ -269,7 +274,6 @@ def play(args):
         ra_vf = torch.load(os.path.join(path, RA_name))
         print('loaded value from', os.path.join(path, RA_name))
         rec_policy_path = LEGGED_GYM_ROOT_DIR + r"/resources/policy/recover_v4_twist.pt"
-        # rec_policy_path = LEGGED_GYM_ROOT_DIR + r"/logs/go1_rec_rough/exported/policies/rec_robustmodel_6000.pt"
         rec_policy = torch.jit.load(rec_policy_path).cuda()
         print('loaded recovery policy from',rec_policy_path)
         mode_running = True # if False: recovery
@@ -290,7 +294,7 @@ def play(args):
     g_hs_span = torch.zeros((2,env.num_envs), device = env.device, dtype=torch.int) # start and end index of the latest finished episode
     l_queue = torch.zeros((queue_len,env.num_envs), device = env.device, dtype=torch.float)
     done_queue = torch.zeros((queue_len,env.num_envs), device = env.device, dtype=torch.bool)
-
+    pr_queue = torch.zeros((queue_len,env.num_envs,privileged_dim), device = env.device, dtype=torch.float)
     alive = torch.ones_like(env.reset_buf)
 
 
@@ -333,8 +337,8 @@ def play(args):
     total_reach_time = 0
     total_collision_time = 0
     total_timeout_time = 0
+    privileged_obs = torch.zeros(env.num_envs, privileged_dim).to("cuda")
     # ======= metrics end =======
-
     
     for i in range(300*int(env.max_episode_length)):
         current_recovery_status = torch.zeros(env.num_envs).to(env.device).bool()
@@ -348,7 +352,15 @@ def play(args):
             _too_near = (env.cfg.asset.test_obj_pos[:].norm(dim=1) < 1.1).unsqueeze(1)
             env.cfg.asset.test_obj_pos[:,0:1,:] += _too_near * torch.sign(env.cfg.asset.test_obj_pos[:,0:1,:]) * 0.9
             env.cfg.asset.test_obj_pos[:,1:,:] += _too_near * torch.sign(env.cfg.asset.test_obj_pos[:,1:,:]) * 0.9
-
+            # if env.cfg.domain_rand.randomize_base_mass:
+            # # self.envs_loads[env_ids] = self.envs_loads[env_ids].uniform_(self.cfg.domain_rand.min_base_mass, self.cfg.domain_rand.max_base_mass)
+            #     for j in range(env.cfg.env.num_envs):
+            #         env_handle = env.envs[j]
+            #         actor_handle = env.actor_handles[j]
+            #         body_props = env.gym.get_actor_rigid_body_properties(env_handle, actor_handle)
+            #         body_props = env._process_rigid_body_props(body_props, j)
+            #         env.gym.set_actor_rigid_body_properties(env_handle, actor_handle, body_props, recomputeInertia=True)
+    
         # reset the env at the beginning of each episode
         # print(env.do_reset)
 
@@ -366,29 +378,32 @@ def play(args):
             if i == 1: env.do_reset = False
             env.timer_left[env.timer_left<0.05] = 0.05
             print('step',i,'survive rate',alive.float().mean().item())
-
+        
         actions = policy(obs.detach()) * alive.unsqueeze(1)
         
         if test_ra:
-            v_pred = ra_vf(ra_obs)
-            start_v = ra_vf(standard_raobs_init).mean().item()
-            die_v = ra_vf(standard_raobs_die).mean().item() 
-            turn_v = ra_vf(standard_raobs_turn).mean().item()
+            prev_v_pred = v_pred.clone()
+            v_pred = ra_vf(torch.cat((ra_obs, privileged_obs),dim=-1))
+            start_v = ra_vf(torch.cat((standard_raobs_init, default_privileged_obs),dim=-1)).mean().item()
+            die_v = ra_vf(torch.cat((standard_raobs_die, default_die_privileged_obs),dim=-1)).mean().item()
+            turn_v = ra_vf(torch.cat((standard_raobs_turn, default_privileged_obs),dim=-1)).mean().item()
 
 
             # print('RA: for a standard init state: %.3f, die state: %.3f, turn state: %.3f'%(start_v, die_v, turn_v))
             # print('dist',torch.norm(obs[:,10:12], dim=-1), 'col last frame?',collision)
-            
             recovery = (v_pred > -twist_eps).squeeze(-1)
             where_recovery = torch.where(torch.logical_and(recovery, ~collision))[0]
             
             if collision.sum().item() > 0 and mode_running and visualize_ra:
+                
                 print(torch.norm(env.contact_forces[0, :, :], dim=-1))
                 print('nooooooo i died!')
-                time.sleep(5.0)
+                time.sleep(0.1)
             
-            if where_recovery.shape[0] > 0:
+            if where_recovery.shape[0] > 0 and ra_enabled:
                 #import ipdb; ipdb.set_trace()
+                delta_v_pred = v_pred - prev_v_pred
+                delta_v_pred = delta_v_pred.clone().detach()
                 episode_recovery_logging[where_recovery] = True
                 current_recovery_status[where_recovery] = True
 
@@ -403,11 +418,19 @@ def play(args):
                     # twist_ra_obs = torch.cat([twist_iter[...,0:2], env.base_lin_vel[:,2:3], env.base_ang_vel[:,0:2], twist_iter[...,2:3], obs[:,10:12], obs[:,-11:]],dim=-1)
                     twist_ra_obs = torch.cat([twist_iter[...,0:2], env.base_lin_vel[where_recovery,2:3], env.base_ang_vel[where_recovery,0:2], twist_iter[...,2:3], obs[where_recovery,10:12], obs[where_recovery,50:61]],dim=-1)
                     x_iter, y_iter, _ = get_pos_integral(twist_iter, twist_tau)
-                    ra_value = ra_vf(twist_ra_obs)
+                    ra_value = ra_vf(torch.cat((twist_ra_obs, privileged_obs[where_recovery]),dim=-1))
                     # old_loss = twist_lam * (ra_value + 2*twist_eps).clip(min=0) + 0.02*((x_iter-obs[where_recovery,10:11])**2 + (y_iter-obs[where_recovery,11:12])**2)
                     # print('old loss',old_loss.mean().item()) # old loss = loss if dim=1
                     loss_separate = twist_lam * (ra_value + 2*twist_eps).clip(min=0).squeeze(-1) + 0.02*(((x_iter-obs[where_recovery,10:11].squeeze(-1))**2) + ((y_iter-obs[where_recovery,11:12].squeeze(-1))**2))
                     loss = loss_separate.sum()
+                    # compute L2 regularization loss of ra_vf
+                    reg_loss = 0
+                    lambda_reg = 0.0001
+                    for param in ra_vf.parameters():
+                        reg_loss += lambda_reg * torch.norm(param, 2)
+                    loss += reg_loss
+                    
+                        
                     loss.backward()
                     # torch.nn.utils.clip_grad_norm_(twist_iter, 1.0) # this only works for one env
                     # twist_iter.data = twist_iter.data - twist_lr * twist_iter.grad.data
@@ -418,7 +441,7 @@ def play(args):
 
                 twist_iter = twist_iter.detach()
                 # obs_rec = torch.cat((obs[:,:10], twist_iter, obs[:,14:50]), dim=-1)
-                obs_rec = torch.cat((obs[where_recovery,:10], twist_iter, obs[where_recovery,14:50]), dim=-1)
+                obs_rec = torch.cat((obs[where_recovery,:10], twist_iter, obs[where_recovery,14:50],privileged_obs[where_recovery,0:1]), dim=-1)
                 # actions = rec_policy(obs_rec.detach())
                 actions[where_recovery] = rec_policy(obs_rec.detach())
                 env.cfg.sensors.ray2d.raycolor = (1.0,0.1,0.1)
@@ -429,7 +452,48 @@ def play(args):
                 # env.do_reset = True
 
         ####### the step is here #######
-        obs, _, rews, dones, infos = env.step(actions.detach())
+        obs, p_obs, rews, dones, infos = env.step(actions.detach())
+        # obs_history[dones,:] = 0
+        obs_history = torch.cat([obs_history[:,1:], obs[:,ppo_runner.proception_dims].unsqueeze(1)], dim=1)
+        # p_obs = p_obs.squeeze(-1)
+        if use_gt_privileged_info and train_ra:
+            p_obs = obs[:,:-privileged_dim].unsqueeze(-1).clone().to("cuda")+ torch.randn_like(p_obs) * 0.01 # obs has added noises
+        with torch.no_grad():
+            # prev_pr_obs = privileged_obs.clone()
+            # privileged_obs = estimator(obs_history).clone().to("cuda")
+            # if where_recovery is not None and where_recovery.shape[0] > 0:
+            #     privileged_obs[where_recovery] = prev_pr_obs[where_recovery]
+            # pr_scales = torch.tensor(
+            #     [env_cfg.normalization.obs_scales.mass,
+            #     env_cfg.normalization.obs_scales.friction,
+            #     ], device=privileged_obs.device)
+            x = obs_history
+            t = x[:,-1,13:14]
+            x = torch.cat((x[:,:,0:13],x[:,:,14:50]),dim=-1)
+            # td = torch.cat((g,t),dim=-1).squeeze(1)
+            x = x.flatten(-2)
+            x = torch.cat((x,t),dim=-1)
+            privileged_obs = estimator(x).clone().to("cuda")[:,:privileged_dim]
+            if override_pr:
+                privileged_obs = 10*torch.randn_like(privileged_obs)
+                # privileged_obs[0] = torch.randn_like(privileged_obs[0]) *0.0
+                privileged_obs = p_obs.clone()
+            # else:
+            #     privileged_obs[0] = torch.randn_like(privileged_obs[0]) +5.0
+                
+            if train_ra:
+                privileged_obs=torch.clamp(privileged_obs,min=-5.0,max=15.0)
+                # privileged_obs[1:3]=torch.clamp(privileged_obs[1:3],min=-1,max=1)
+                # privileged_obs[3]=torch.clamp(privileged_obs[0],min=0.0,max=1.5)
+                # privileged_obs[4:]=torch.clamp(privileged_obs[4:],min=-2.0,max=2.0)
+
+            if np.random.rand() < 0.01:
+                print('privi obs', privileged_obs[0])
+                print("gt privi obs", p_obs[0])
+            obs = torch.cat([obs, privileged_obs], dim=-1) # replace the gt pr obs with estimated ones
+            # if test_ra: p_obs = privileged_obs
+
+        
         ####### the step is upward #######
         collision = torch.any(torch.norm(env.contact_forces[:, env.termination_contact_indices, :], dim=-1) > 1., dim=1)  
         hor_footforce = env.contact_forces[:, env.feet_indices[:2],0:2].norm(dim=-1)
@@ -497,30 +561,46 @@ def play(args):
             episode_max_velo_dist_collision += episode_max_velo[where_collision].sum().item()
             episode_max_velo_dist_reach += episode_max_velo[where_reach].sum().item()
             episode_max_velo_dist_timeout += episode_max_velo[where_timeout].sum().item()
-            if cnt <11000:
-                count = torch.cat([
-                        -episode_max_velo[where_collision], # count
-                        0*episode_max_velo[where_timeout], # count
-                        episode_max_velo[where_reach], # count
-                    ], dim=0
-                )
-                if cnt>1000:
+            if not train_ra:
+                if cnt < 10000:
+                    count = torch.cat([
+                            -episode_max_velo[where_collision], # count
+                            0*episode_max_velo[where_timeout], # count
+                            episode_max_velo[where_reach], # count
+                        ], dim=0
+                    )
                     counts.append(count)
-                cnt+=len(count)
-                print('count', count)
-            elif cnt >= 11000:
-                from matplotlib import pyplot as plt
-                os.makedirs(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr'), exist_ok=True)
-                counts = torch.cat(counts, dim=0)
-                np.save(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr',policy_name[:-3] + 'counts.npy'), counts.cpu().numpy())
-                plt.hist(counts.cpu().numpy(), bins=100)
-                plt.savefig(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr', policy_name[:-3] + 'hist.png'))
-                plt.show()
-                print('histogram saved')
-                exit()
+                    cnt+=len(count)
+                    print('count', count)
+                    gt_array.append(p_obs.cpu().numpy())
+                    esti_array.append(privileged_obs.cpu().numpy())
+                elif cnt >= 10000:
+                    from matplotlib import pyplot as plt
+                    counts = torch.cat(counts, dim=0)
+                    head = 'noDR' if not base_DR_enable else ('midDR' if not DR_enable else 'fullDR')
+                    label = 'agile' if agile_only else 'ra'
+                    os.makedirs(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr',head), exist_ok=True)
+                    np.save(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr', head,label+'_'+policy_name[:-3] + 'counts.npy'), counts.cpu().numpy())
+                    plt.hist(counts.cpu().numpy(), bins=100)
+                    plt.savefig(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr', head,label+'_'+policy_name[:-3] + 'hist.png'))
+                    # plt.show()
+                    print('histogram saved')
+                    plt.clf()
+                    # plot esti tracking
+                    gt_array = np.array(gt_array)
+                    esti_array = np.array(esti_array)
+                    # plt.plot(gt_array[:,0], label='gt_mass')
+                    # plt.plot(esti_array[:,0], label='esti_mass')
+                    # plt.plot(gt_array[:,1], label='gt_friction')
+                    # plt.plot(esti_array[:,1], label='esti_friction')
+                    # plt.legend()
+                    mse_loss = np.mean((gt_array - esti_array)**2)
+                    print('mse_loss', mse_loss)
+                    mean_err = np.mean(np.abs(gt_array - esti_array))
+                    print('mean_err', mean_err)
+                    # plt.show()
+                    exit()
             episode_max_velo[where_done] = 0
-
-            
             # collision
             collision_dist = episode_travel_dist[where_collision].sum().item()
             collision_time = episode_time[where_collision].sum().item()
@@ -560,7 +640,7 @@ def play(args):
             avg_total_dist = total_travel_dist / (total_episode + 1e-8)
             avg_total_time = total_time / (total_episode + 1e-8)
 
-            avg_total_velocity = avg_total_dist / (avg_total_time + 1e-8)
+            avg_total_velocity = avg_total_dist / avg_total_time
             avg_collision_velocity = avg_collision_dist / (avg_collision_time + 1e-8)
             avg_reach_velocity = avg_reach_dist / (avg_reach_time + 1e-8)
             avg_timeout_velocity = avg_timeout_dist / (avg_timeout_time + 1e-8)
@@ -600,11 +680,11 @@ def play(args):
             # Collision
             print('RA activation rate for collision moments: {:.2%}'.format(total_n_collision_when_ra_on / (total_n_collision + 1e-8)))
             print('RA deactivation rate for collision moments: {:.2%}'.format(total_n_collision_when_ra_off / (total_n_collision + 1e-8)))
-
             if total_episode > 20000 and record_perf:
                 import json
+                os.makedirs('share/RA_pr_testbed', exist_ok=True)
                 # print it to a json file
-                with open('share/RA_testbed.json', 'a') as f:
+                with open('share/RA_pr_testbed/'+str(env_cfg.domain_rand.added_mass_range[0])+'.json', 'a') as f:
                     json.dump({
                         "payload range": env_cfg.domain_rand.added_mass_range,
                         "Total Episode": total_episode,
@@ -634,9 +714,8 @@ def play(args):
                         "RA activation rate for collision moments": total_n_collision_when_ra_on / (total_n_collision + 1e-8),
                         "RA deactivation rate for collision moments": total_n_collision_when_ra_off / (total_n_collision + 1e-8)
                     }, f,indent=4)
-                print('json file saved: share/RA_testbed.json', env_cfg.domain_rand.added_mass_range[0])
+                print('json file saved: share/RA_pr_testbed.json', env_cfg.domain_rand.added_mass_range)
                 break
-
 
 
 
@@ -650,12 +729,7 @@ def play(args):
         # contact_forces refresh is before done-reset-obs so it is at "t-1"
         if one_trial: alive = torch.logical_and(alive, ~collision)
 
-        
-        if rma_teacher:
-            latent = ppo_runner.alg.actor_critic.get_latent_vector(obs)
-            ra_obs = torch.cat([env.base_lin_vel, env.base_ang_vel, obs[:,10:12], obs[:,50:61], latent], dim=-1)
-
-        ra_obs = torch.cat([env.base_lin_vel, env.base_ang_vel, obs[:,10:12], obs[:,50:61] ], dim=-1)
+        ra_obs = torch.cat([env.base_lin_vel, env.base_ang_vel, obs[:,10:12], obs[:,50:61]], dim=-1)
 
         if train_ra:
             ## ls <=0: reach target; gs >0: failure
@@ -666,10 +740,12 @@ def play(args):
             g_queue[:-1] = g_queue[1:].clone()
             l_queue[:-1] = l_queue[1:].clone()
             done_queue[:-1] = done_queue[1:].clone()
+            pr_queue[:-1] = pr_queue[1:].clone()
             s_queue[-1] = ra_obs.clone()
             g_queue[-1] = gs.clone()  # note that g is obtained before done and reset and obs
             l_queue[-1] = ls.clone()
             done_queue[-1] = dones.clone()  # note that s is obtained after done and reset
+            pr_queue[-1] = torch.cat((privileged_obs),dim=-1).clone()
             ## hindsight ######
             g_hs_queue[:-1] = g_hs_queue[1:].clone()
             g_hs_queue[-1] = gs.clone()
@@ -691,18 +767,19 @@ def play(args):
             if i > queue_len and i % 20 == 0:
                 false_safe, false_reach, n_fail, n_reach, accu_loss = 0, 0, 0, 0, []
                 total_n_fail, total_n_reach = torch.logical_and(g_queue[1:]>0, done_queue[1:]).sum().item(), torch.logical_and(l_queue[:-1]<=0,done_queue[1:]).sum().item()
-                start_v = ra_vf(standard_raobs_init).mean().item()
-                die_v = ra_vf(standard_raobs_die).mean().item() 
-                turn_v = ra_vf(standard_raobs_turn).mean().item()
+                start_v = ra_vf(torch.cat((standard_raobs_init, default_privileged_obs),dim=-1)).mean().item()
+                die_v = ra_vf(torch.cat((standard_raobs_die, default_die_privileged_obs),dim=-1)).mean().item() 
+                turn_v = ra_vf(torch.cat((standard_raobs_turn, default_privileged_obs),dim=-1)).mean().item()
                 weight_end = 0.0 # max(0.0, 10.0 - i/2000 - 1.0)  # will later be added one
                 gamma = 0.999999 # min(0.999999, 1-0.2*(0.5**float(np.floor(20.001*i/50000))))
                 print('weight of end %.3f'%(weight_end+1), 'total_n_fail',total_n_fail,'total_n_reach',total_n_reach,'gamma', gamma)
                 for _start in range(0, queue_len-1, batch_size):
-                    vs_old = ra_vf(s_queue[_start:_start+batch_size]).squeeze(-1)
+                    vs_old = ra_vf(torch.cat((s_queue[_start:_start+batch_size],pr_queue[_start:_start+batch_size]),dim=-1)).squeeze(-1)
                     with torch.no_grad():
-                        vs_new = ra_vf(s_queue[_start+1:_start+batch_size+1]).squeeze(-1) * (~done_queue[_start+1:_start+batch_size+1]) + 1.0 * done_queue[_start+1:_start+batch_size+1]
+                        vs_new = ra_vf(torch.cat((s_queue[_start+1:_start+batch_size+1],pr_queue[_start+1:_start+batch_size+1]),dim=-1)).squeeze(-1) * (~done_queue[_start+1:_start+batch_size+1]) + 1.0 * done_queue[_start+1:_start+batch_size+1]
                         vs_discounted_old = gamma * torch.maximum(g_hs_queue[_start+1:_start+batch_size+1], torch.minimum(l_queue[_start:_start+batch_size],vs_new))\
                                             + (1-gamma) * torch.maximum(l_queue[_start:_start+batch_size], g_hs_queue[_start+1:_start+batch_size+1])
+                           
                     v_loss = 100*torch.mean(torch.square(vs_old - vs_discounted_old) * (1.0 + weight_end * (done_queue[_start+1:_start+batch_size+1]>0)))  # diff weight of failure samples
                     # new_states = torch.mean(vs_old * done_queue[_start:_start+batch_size]) # regularization to focus on init states
                     # v_loss += 1.0 * new_states
@@ -721,14 +798,15 @@ def play(args):
                 print('value RA loss %.4f, false safe rate %.2f in %d, false reach rate %.2f in %d, standard values init %.2f die %.2f turn %.2f, step %d'%\
                                 (new_loss, false_safe/(n_fail+1e-8), n_fail, false_reach/(n_reach+1e-8), n_reach, start_v, die_v, turn_v, i), end='   \n')
                 
-                if false_safe/(n_fail+1e-8) < best_metric and die_v > 0.2 and start_v<-0.1 and turn_v<-0.1 and i > 3000:
+                if false_safe/(n_fail+1e-8) < best_metric and die_v > 0.1 and start_v<-0.1 and turn_v<-0.1 and i > 3000:
+                # if false_safe/(n_fail+1e-8) < best_metric and i > 3000:
                     best_metric = false_safe/(n_fail+1e-8)
-                    path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA')
+                    path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'RA_pr')
                     try:
                         os.mkdir(path)
                     except:
                         pass
-                    RA_name = policy_name[:-3] + '_ra' + '.pt'
+                    RA_name = policy_name[:-3] + ('_ra_c' if continuous_RA else '_ra')  + '.pt'
                     torch.save(ra_vf, os.path.join(path, RA_name))
                     print('\x1b[6;30;42m', 'saving ra model to', os.path.join(path, RA_name), '\x1b[0m' )
         if override: 
@@ -745,6 +823,34 @@ def play(args):
         if MOVE_CAMERA:
             camera_position += camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
+
+
+class RA_value_model(nn.Module):
+    def __init__(self, input_dim, privileged_dim,net_type='mlp'):
+        super(RA_value_model, self).__init__()
+        self.input_dim = input_dim
+        self.privileged_dim = privileged_dim
+        self.net_type = net_type
+        if net_type == 'mlp':
+            self.fc1 = nn.Linear(input_dim+privileged_dim, 64)
+            self.fc2 = nn.Linear(64, 64)
+            # self.fc2 = nn.Linear(64, 64)
+            self.fc3 = nn.Linear(64, 1)
+            self.relu = nn.ReLU()
+            self.relu2 = nn.ReLU()
+            self.tanh = nn.Tanh()
+
+
+    def forward(self, o, p):
+        if self.net_type == 'mlp':
+            # x = o # uncomment this line for no privileged obs estimation/gt
+            x = torch.cat((o,p), dim=-1)
+            x = self.relu(self.fc1(x))
+            x = self.fc2(x)
+            x = self.relu2(x)
+            x = self.fc3(x)
+            x = self.tanh(x)
+            return x
 
 if __name__ == '__main__':
     args = get_args()

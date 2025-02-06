@@ -46,10 +46,10 @@ from legged_gym.utils.terrain import Terrain
 from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float, yaw_quat, circle_ray_query
 # from legged_gym.utils.helpers import class_to_dict
 # from .legged_robot_config import LeggedRobotCfg
-from .legged_robot_pos_config import LeggedRobotPosCfg
+# from .legged_robot_pos_config import LeggedRobotPosCfg
 
-class LeggedRobotPos(LeggedRobot):
-    cfg : LeggedRobotPosCfg
+class LeggedRobotTeacher(LeggedRobot):
+    # cfg : LeggedRobotPosCfg
     def __init__(self, cfg, sim_params, physics_engine, sim_device, headless):
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
 
@@ -61,12 +61,6 @@ class LeggedRobotPos(LeggedRobot):
         self.commands = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.position_targets = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.heading_targets = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
-        # randomize action delay
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue = torch.zeros(self.num_envs, self.cfg.domain_rand.ctrl_delay_step_range[1]+1, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
-            self.action_delay = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0], 
-                                              self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (self.num_envs,), device=self.device, requires_grad=False)
-            
 
     def reset_idx(self, env_ids):
         if len(env_ids) == 0:
@@ -111,12 +105,6 @@ class LeggedRobotPos(LeggedRobot):
         # send timeout info to the algorithm
         if self.cfg.env.send_timeouts:
             self.extras["time_outs"] = self.time_out_buf
-        if self.cfg.domain_rand.randomize_ctrl_delay:
-            self.action_queue[env_ids] *= 0.
-            self.action_queue[env_ids] = 0.
-            self.action_delay[env_ids] = torch.randint(self.cfg.domain_rand.ctrl_delay_step_range[0], 
-                                              self.cfg.domain_rand.ctrl_delay_step_range[1]+1, (len(env_ids),), device=self.device, requires_grad=False)
-        
         
     def _update_terrain_curriculum(self, env_ids):
         if not self.init_done:
@@ -215,12 +203,12 @@ class LeggedRobotPos(LeggedRobot):
         noise_vec[26:38] = noise_scales.dof_vel * noise_level * self.obs_scales.dof_vel
         noise_vec[38:50] = 0. # previous actions
         if self.cfg.terrain.measure_heights:
-            noise_vec[50:50+187] = noise_scales.height_measurements* noise_level * self.obs_scales.height_measurements
+            noise_vec[61:61+187] = noise_scales.height_measurements* noise_level * self.obs_scales.height_measurements
         if self.cfg.sensors.ray2d.enable:
-            noise_vec[50:] = noise_scales.ray2d * noise_level * self.obs_scales.ray2d
+            noise_vec[50:61] = noise_scales.ray2d * noise_level * self.obs_scales.ray2d
         if self.cfg.env.privilege_enable:
             # print(noise_vec.shape)
-            noise_vec[61:] = noise_scales.privileged * noise_level
+            noise_vec[-16:] = noise_scales.privileged * noise_level
             # noise_vec[62:] = noise_scales.privileged * noise_level * self.obs_scales.friction
         return noise_vec
 
@@ -262,22 +250,15 @@ class LeggedRobotPos(LeggedRobot):
                                     ),dim=-1)  # append ray2d obs after this, 50:
         # add perceptive inputs if not blind
         # print(self.external_forces[0])
-        self.privileged_obs_buf = torch.cat((
-            self.envs_loads*self.obs_scales.mass, # 0:1, scale 1
-            self.envs_com*self.obs_scales.com, # 1:4, scale 10
-            self.envs_friction*self.obs_scales.friction,  # 4:5, scale 5
-            # self.external_forces[:,0,:2]*self.obs_scales.external_forces, # 5:7, scale 0.1
-            # self.envs_kps.unsqueeze(-1)*self.obs_scales.kp_kd, 
-            # self.envs_kds.unsqueeze(-1)*self.obs_scales.kp_kd,# 7:9, scale 2
-                                    ), dim=-1)
-        
-        # self.privileged_obs_buf = torch.cat(
-        #     (self.envs_loads,),dim = -1
-        # )
-        if self.cfg.terrain.measure_heights:
-            # zc prefer the flipped ver here, but legged robot is with old ver.
-            heights = torch.clip( - self.root_states[:, 2].unsqueeze(1) + 0.5 + self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
-            self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
+        # self.privileged_obs_buf = torch.cat((
+        #     self.envs_loads*self.obs_scales.mass, # 0:1, scale 1
+        #     self.envs_com*self.obs_scales.com, # 1:4, scale 10
+        #     # self.envs_friction*self.obs_scales.friction,  # 4:5, scale 5
+        #     self.external_forces[:,0,:2]*self.obs_scales.external_forces, # 5:7, scale 0.1
+        #     # self.envs_kps.unsqueeze(-1)*self.obs_scales.kp_kd, 
+        #     # self.envs_kds.unsqueeze(-1)*self.obs_scales.kp_kd,# 7:9, scale 2
+        #                             ), dim=-1)
+        # add perceptive inputs if not blind
         if self.cfg.sensors.ray2d.enable:
             if self.add_noise and self.cfg.sensors.ray2d.hallucination:
                 safe_tgt_dist = torch.norm(self.commands[:, :2], dim=-1).unsqueeze(1) + 0.35
@@ -288,12 +269,42 @@ class LeggedRobotPos(LeggedRobot):
             else:
                 ray2d_ = self.ray2d_obs * self.obs_scales.ray2d
             self.obs_buf = torch.cat((self.obs_buf, ray2d_), dim=-1)
-        # add noise if needed
-        if self.cfg.env.privilege_enable:
-            self.obs_buf = torch.cat((self.obs_buf, self.privileged_obs_buf), dim=-1)
+
+        # if self.cfg.terrain.measure_heights:
+        #     heights = torch.clip(self.root_states[:, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1,
+        #                             1.) * self.obs_scales.height_measurements
+        #     self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
+
+        # contact_force = self.contact_forces[:, self.feet_indices].flatten(1) * 0.002
+        # self.obs_buf = torch.cat((self.obs_buf, contact_force), dim=-1)
+
+        if self.cfg.domain_rand.randomize_friction:
+            self.obs_buf = torch.cat((self.obs_buf, self.envs_friction), dim=-1)
+
+        if (self.cfg.domain_rand.randomize_base_mass):
+            self.obs_buf = torch.cat((self.obs_buf, self.envs_loads*0.2), dim=-1)
+
+        # if (self.cfg.domain_rand.external_push_robots):
+        #     self.obs_buf = torch.cat((self.obs_buf,self.external_forces[:,0,:2]*0.1),dim=-1) # 5:7, scale 0.1
+
+        # if (self.cfg.domain_rand.randomize_kp_kd):
+        #     self.obs_buf = torch.cat((self.obs_buf, self.envs_kps.unsqueeze(-1), self.envs_kds.unsqueeze(-1)), dim=-1)
+
         
-        # if self.add_noise:
-        #     self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
+        # self.privileged_obs_buf = torch.cat(
+        #     (self.envs_loads,),dim = -1
+        # )
+        # if self.cfg.terrain.measure_heights:
+        #     # zc prefer the flipped ver here, but legged robot is with old ver.
+        #     heights = torch.clip( - self.root_states[:, 2].unsqueeze(1) + 0.5 + self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
+        #     self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
+
+        # add noise if needed
+        # if self.cfg.env.privilege_enable:
+        #     self.obs_buf = torch.cat((self.obs_buf, self.privileged_obs_buf), dim=-1)
+        # print('obs',self.obs_buf.shape)
+        if self.add_noise:
+            self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
             # should I clip ray obs here after noise? maybe not.
  
     def _draw_debug_vis(self):
@@ -319,15 +330,10 @@ class LeggedRobotPos(LeggedRobot):
 
     def _reward_reach_pos_target_soft(self):
         distance = torch.norm(self.position_targets[:, :2] - self.root_states[:, :2], dim=1)
-        # print(distance)
-        distance = torch.clamp(distance,self.cfg.rewards.stop_reward_sigma,100)
-
         return (1. /(1. + torch.square(distance / self.cfg.rewards.position_target_sigma_soft))) * self._command_duration_mask(self.cfg.rewards.rew_duration)
 
     def _reward_reach_pos_target_tight(self):
         distance = torch.norm(self.position_targets[:, :2] - self.root_states[:, :2], dim=1)
-        distance = torch.clamp(distance,self.cfg.rewards.stop_reward_sigma,100)
-
         return (1. /(1. + torch.square(distance / self.cfg.rewards.position_target_sigma_tight))) * self._command_duration_mask(self.cfg.rewards.rew_duration/2)
     
     def _reward_reach_heading_target(self):
@@ -364,10 +370,9 @@ class LeggedRobotPos(LeggedRobot):
     def _reward_velo_dir(self):
         forward = quat_apply(self.base_quat, self.forward_vec)
         xy_dif = self.position_targets[:,:2] - self.root_states[:, :2]
-        xy_dif = xy_dif / (0.001 + torch.norm(xy_dif, dim=1).unsqueeze(1))# only x, y used here
-        # xy_dif = xy_dif * torch.logical_or((abs(self.obs_buf[:, 10]) > 0.05), (abs(self.obs_buf[:, 11]) > 0.05)).reshape(-1,1)  # if no command, no reward
+        xy_dif = xy_dif / (0.001 + torch.norm(xy_dif, dim=1).unsqueeze(1))
         good_dir = forward[:,0] * xy_dif[:,0] + forward[:,1] * xy_dif[:,1] > -0.25  # base orientation -> target
-        # print(xy_dif)
+        
         distance = torch.norm(self.position_targets[:, :2] - self.root_states[:, :2], dim=1)
         _rew = self.base_lin_vel[:,0].clip(min=0.0) * good_dir * (distance>self.cfg.rewards.position_target_sigma_tight) / 4.5 \
                                             + 1.0 * (distance<self.cfg.rewards.position_target_sigma_tight)
@@ -379,18 +384,8 @@ class LeggedRobotPos(LeggedRobot):
         stand_bias = torch.zeros_like(self.dof_pos)
         stand_bias[:,1::3] += 0.2
         stand_bias[:,2::3] -= 0.3
-        reward = torch.sum(torch.abs(self.dof_pos - self.default_dof_pos - stand_bias), dim=1) * self._command_duration_mask(self.cfg.rewards.rew_duration/2) \
+        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos - stand_bias), dim=1) * self._command_duration_mask(self.cfg.rewards.rew_duration/2) \
                                                                                              * (distance < self.cfg.rewards.position_target_sigma_tight)
-        return reward
-    
-    def _reward_stand_still_action_pos(self):
-        # Penalize motion at zero commands
-        distance = torch.norm(self.position_targets[:, :2] - self.root_states[:, :2], dim=1)
-        # low_command_mask = torch.logical_and((abs(self.obs_buf[:, 10]) < 0.05), (abs(self.obs_buf[:, 11]) < 0.05)) 
-        low_command_mask = distance < self.cfg.rewards.position_target_sigma_tight/2
-        action_sq=torch.sum(torch.square(self.last_actions - self.actions), dim=1)
-        reward = action_sq * low_command_mask 
-        return reward
 
     def _reward_fly(self):
         fly = torch.sum(self.contact_filt.float(), dim=-1) < 0.5
@@ -414,5 +409,3 @@ class LeggedRobotPos(LeggedRobot):
         distance = torch.norm(self.position_targets[:, :2] - self.root_states[:, :2], dim=1)
 
         return static * bad_dir * 1.0 * (distance > self.cfg.rewards.position_target_sigma_soft)
-    
-

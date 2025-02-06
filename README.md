@@ -1,13 +1,15 @@
-# ABS
+# BAS
 
-Official Implementation for [Agile But Safe: Learning Collision-Free High-Speed Legged Locomotion](https://agile-but-safe.github.io/).
+Official Implementation for [Bridging Adaptivity and Safety:
+Learning Agile Collision-Free Locomotion
+Across Varied Physics](https://adaptive-safe-locomotion.github.io/).
 
-Robotics: Science and Systems (RSS) 2024
+Under Review
 
-[Tairan He*](https://tairanhe.com/), [Chong Zhang*](https://zita-ch.github.io/), [Wenli Xiao](https://wenlixiao-cs.github.io/), [Guanqi He](https://guanqihe.github.io/), [Changliu Liu](https://www.cs.cmu.edu/~cliu6/), [Guanya Shi](https://www.gshi.me/)  
+[Yichao Zhong](https://z-taylcr7.github.io/), [Chong Zhang](https://zita-ch.github.io/), [Tairan He](https://tairanhe.com/), [Guanya Shi](https://www.gshi.me/)  
 
 <p align="center">
-  <img src="images/Youtube-Cover[2M].png" width="80%"/>
+  <img src="images/BAS-video-cover.png" width="80%"/>
 </p>
 
 This codebase is under [CC BY-NC 4.0 license](https://creativecommons.org/licenses/by-nc/4.0/deed.en), with inherited license in [Legged Gym](training/legged_gym) and [RSL RL](training/rsl_rl) from *ETH Zurich, Nikita Rudin* and *NVIDIA CORPORATION & AFFILIATES*. You may not use the material for commercial purposes, e.g., to make demos to advertise your commercial products.
@@ -24,7 +26,7 @@ Please read through the whole README.md before cloning the repo.
 1. Create environment and install torch
 
    ```text
-   conda create -n xxx python=3.8  # or use virtual environment/docker
+   conda create -n bas python=3.8  # or use virtual environment/docker
    
    pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu116  
    # used version during this work: torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2
@@ -73,11 +75,18 @@ Please read through the whole README.md before cloning the repo.
 
    for go1, in `legged_gym/legged_gym`,
     ```text
-   # agile policy
-   python scripts/train.py --task=go1_pos_rough --max_iterations=4000 
+   # BAS agile policy along with estimator
+   python scripts/train.py --task=go1_pos_estimator_rough --max_iterations=5000 
    
-   # agile policy, lagrangian ver
-   python scripts/train.py --task=go1_pos_rough_ppo_lagrangian --max_iterations=4000
+   # ABS agile policy
+   python scripts/train.py --task=go1_pos_rough --max_iterations=5000 
+   
+   # PPO-Lagrangian agile policy
+   python scripts/train.py --task=go1_pos_rough_ppo_lagrangian --max_iterations=5000
+   
+   # RMA-PPO-Lagrangian agile policy
+   python scripts/rma_train_teacher.py --task=go1_teacher_rough_ppo_lagrangian --max_iterations=5000
+   python scripts/rma_train_student.py --task=go1_student_rough_ppo_lagrangian --max_iterations=5000
    
    # recovery policy
    python scripts/train.py --task=go1_rec_rough --max_iterations=1000
@@ -87,28 +96,32 @@ Please read through the whole README.md before cloning the repo.
 6. Play the trained policy
 
    ```cmd
-   python scripts/play.py --task=go1_pos_rough
-   python scripts/play.py --task=go1_rec_rough
+   python scripts/play_bas.py --task=go1_pos_rough
+   python scripts/play_bas.py --task=go1_rec_rough
    ```
 
 7. Use the testbed, and train/test Reach-Avoid network:
 
    ```text
    # try testbed
-   python scripts/testbed.py --task=go1_pos_rough [--load_run=xxx] --num_envs=1
+   python scripts/bas_testbed.py --task=go1_pos_estimator_rough [--load_run=xxx] --num_envs=1
 
    # train RA (be patient it will take time to converge) 
    # make sure you have at least exported one policy by play.py so the exported folder exists
-   python scripts/testbed.py --task=go1_pos_rough --num_envs=1000 --headless --trainRA
+   python scripts/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1000 --headless --trainRA
    
    # test RA (only when you have trained one RA)
-   python scripts/testbed.py --task=go1_pos_rough --num_envs=1 --testRA
+   python scripts/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1 --testRA
    
    # evaluate
-   python scripts/testbed.py --task=go1_pos_rough --num_envs=1000 --headless [--load_run=xxx] [--testRA]
+   python scripts/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1000 --headless [--load_run=xxx] [--testRA]
    ```
-
-8. Sample dataset for ray-prediction network training
+8. On-policy finetuning on estimator
+   ```text
+   # try finetune
+   python scripts/bas_finetune_testbed.py --task=go1_pos_rough --num_envs=1000 --headless [--load_run=xxx] --testRA
+   ```
+9.  Sample dataset for ray-prediction network training
    ```cmd
    python scripts/camrec.py --task=go1_pos_rough --num_envs=3
    ```
@@ -166,41 +179,19 @@ Please read through the whole README.md before cloning the repo.
 - `X`: Back to initial position
 
 
-
-## Troubleshooting:
-### Contact
-+ Deployment and Ray-Prediction: Tairan He, tairanh@andrew.cmu.edu
-+ Policy Learning in Sim: Chong Zhang, chozhang@ethz.ch
-+ PPO-Lagrangian Implementation: Wenli Xiao, randyxiao64@gmail.com
-
-### Issues
-You can create an issue if you meet any bugs, except:
-+ If you cannot run the [vanilla RSL's Legged Gym](https://github.com/leggedrobotics/legged_gym), it is expected that you first go to the vanilla Legged Gym repo for help.
-+ There can be CUDA-related errors when there are too many parallel environments on certain PC+GPU+driver combination: we cannot solve thiss, you can try to reduce num_envs.
-+ Our codebase is only for our hardware system showcased above. We are happy to make it serve as a reference for the community, but we won't tune it for your own robots.
-
 ## Credit
 If our work does help you, please consider citing us and the following works:
 ```bibtex
-@inproceedings{AgileButSafe,
-  author    = {He, Tairan and Zhang, Chong and Xiao, Wenli and He, Guanqi and Liu, Changliu and Shi, Guanya},
-  title     = {Agile But Safe: Learning Collision-Free High-Speed Legged Locomotion},
-  booktitle = {Robotics: Science and Systems (RSS)},,
-  year      = {2024},
+@misc{zhong2025bridgingadaptivitysafetylearning,
+      title={Bridging Adaptivity and Safety: Learning Agile Collision-Free Locomotion Across Varied Physics}, 
+      author={Yichao Zhong and Chong Zhang and Tairan He and Guanya Shi},
+      year={2025},
+      eprint={2501.04276},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2501.04276}, 
 }
 ```
+This work builds upon [Agile But Safe: Learning Collision-Free High-Speed Legged Locomotion](https://github.com/lecar-lab/ABS/).
 We used codes in [Legged Gym](training/legged_gym) and [RSL RL](training/rsl_rl), based on the paper:
   + Rudin, Nikita, et al. "Learning to walk in minutes using massively parallel deep reinforcement learning." CoRL 2022.
-
-Previsou works that heavily inspired the policy training designs:
- + Rudin, Nikita, et al. "Advanced skills by learning locomotion and local navigation end-to-end." 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2022.
- + Zhang, Chong, et al. "Learning Agile Locomotion on Risky Terrains." arXiv preprint arXiv:2311.10484 (2023).
- + Zhang, Chong, et al. "Resilient Legged Local Navigation: Learning to Traverse with Compromised Perception End-to-End." ICRA 2024.
-
-Previsou works that heavily inspired the RA value design:
-+ Hsu, Kai-Chieh, et al. "Safety and liveness guarantees through reach-avoid reinforcement learning." RSS 2021.
-
-Previsou works that heavily inspired the perception design:
-+ Hoeller, David, et al. "Anymal parkour: Learning agile navigation for quadrupedal robots." Science Robotics 9.88 (2024): eadi7566.
-+ Acero, F., K. Yuan, and Z. Li. "Learning Perceptual Locomotion on Uneven Terrains using Sparse Visual Observations." IEEE Robotics and Automation Letters 7.4 (2022): 8611-8618.
-
