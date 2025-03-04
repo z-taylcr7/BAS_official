@@ -33,6 +33,7 @@ from legged_gym.envs.a1.a1_config import A1RoughCfg, A1RoughCfgPPO
 from .base.legged_robot import LeggedRobot
 from .base.legged_robot_pos import LeggedRobotPos
 from .base.legged_robot_rec import LeggedRobotRec
+from .base.legged_robot_rmalag import LeggedRobotTeacher
 from .anymal_c.anymal import Anymal
 from .anymal_c.mixed_terrains.anymal_c_rough_config import AnymalCRoughCfg, AnymalCRoughCfgPPO
 from .anymal_c.flat.anymal_c_flat_config import AnymalCFlatCfg, AnymalCFlatCfgPPO
@@ -43,6 +44,7 @@ from .a1.a1_config import A1RoughCfg, A1RoughCfgPPO
 from .go1.go1_config import Go1RoughCfg, Go1RoughCfgPPO, Go1RoughCfgNoPenalty, Go1RoughCfgPPOLagrangian
 from .go1.go1_pos_config import Go1PosRoughCfg, Go1PosRoughCfgPPO, Go1PosRoughCfgNoPenalty, Go1PosRoughCfgPPOLagrangian
 from .go1.go1_rec_config import Go1RecRoughCfg, Go1RecRoughCfgPPO
+from .go1.go1_rmalag_config import Go1TeacherRoughCfgNoPenalty, Go1TeacherRoughCfgPPOLagrangian, Go1StudentRoughCfgPPOLagrangian
 from .go1.go1_pos_estimator_config import Go1PosEstimatorRoughCfg, Go1PosEstimatorRoughCfgNoPenalty, Go1PosEstimatorRoughCfgPPO,Go1PosEstimatorRoughCfgPPO_RLupdate,Go1PosEstimatorRoughCfgPPOLagrangian
 import os
 

@@ -274,8 +274,8 @@ class Go1PosEstimatorRoughCfg( LeggedRobotPosCfg ):
         soft_torque_limit = 0.85
         max_contact_force = 100. # forces above this value are penalized
 
-class Go1PosEstimatorRoughCfgNoPenalty( Go1PosRoughCfg ):
-    class env( Go1PosRoughCfg.env ):
+class Go1PosEstimatorRoughCfgNoPenalty( Go1PosEstimatorRoughCfg ):
+    class env( Go1PosEstimatorRoughCfg.env ):
         privilege_enable = False
         num_observations = 61
     class domain_rand(Go1PosEstimatorRoughCfg.domain_rand):

@@ -35,7 +35,7 @@ import torch
 import numpy as np
 
 from rsl_rl.env import VecEnv
-from rsl_rl.runners import OnPolicyRunner, OnPolicyRunnerCost, TrainTeacherRunner, TrainStudentRunner, TrainTeacherRunnerCost, TrainStudentRunnerCost
+from rsl_rl.runners import OnPolicyRunner, OnPolicyRunnerCost, TrainTeacherRunnerCost, TrainStudentRunnerCost
 
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 from .helpers import get_args, update_cfg_from_args, class_to_dict, get_load_path, set_seed, parse_sim_params
@@ -163,7 +163,7 @@ class TaskRegistry():
             runner.load(resume_path)
         return runner, train_cfg
     
-    def make_teacher_runner(self, env, name=None, args=None, train_cfg=None, log_root="default") -> Tuple[Union[TrainTeacherRunner,TrainTeacherRunnerCost], Union[LeggedRobotCfgPPO, LeggedRobotCfgPPOLagrangian]]:
+    def make_teacher_runner(self, env, name=None, args=None, train_cfg=None, log_root="default") -> Tuple[TrainTeacherRunnerCost, Union[LeggedRobotCfgPPO, LeggedRobotCfgPPOLagrangian]]:
         """ Creates the training algorithm  either from a registered namme or from the provided config file.
 
         Args:
@@ -222,7 +222,7 @@ class TaskRegistry():
         return runner, train_cfg
 
     def make_student_runner(self, env, name=None, args=None, train_cfg=None, log_root="default") -> Tuple[
-        Union[TrainStudentRunner,TrainStudentRunnerCost], Union[LeggedRobotCfgPPO,LeggedRobotCfgPPOLagrangian]]:
+        TrainStudentRunnerCost, Union[LeggedRobotCfgPPO,LeggedRobotCfgPPOLagrangian]]:
         """ Creates the training algorithm  either from a registered namme or from the provided config file.
 
         Args:
