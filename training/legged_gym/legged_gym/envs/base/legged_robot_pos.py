@@ -383,14 +383,6 @@ class LeggedRobotPos(LeggedRobot):
                                                                                              * (distance < self.cfg.rewards.position_target_sigma_tight)
         return reward
     
-    def _reward_stand_still_action_pos(self):
-        # Penalize motion at zero commands
-        distance = torch.norm(self.position_targets[:, :2] - self.root_states[:, :2], dim=1)
-        # low_command_mask = torch.logical_and((abs(self.obs_buf[:, 10]) < 0.05), (abs(self.obs_buf[:, 11]) < 0.05)) 
-        low_command_mask = distance < self.cfg.rewards.position_target_sigma_tight/2
-        action_sq=torch.sum(torch.square(self.last_actions - self.actions), dim=1)
-        reward = action_sq * low_command_mask 
-        return reward
 
     def _reward_fly(self):
         fly = torch.sum(self.contact_filt.float(), dim=-1) < 0.5

@@ -91,6 +91,8 @@ class TrainStudentRunnerCost:
         self.tot_timesteps = 0
         self.tot_time = 0
         self.current_learning_iteration = 0
+        if self.policy_cfg["use_action_loss"]:
+            self.optim = torch.optim.Adam(list(self.student_encoder.parameters(),student_actor_critic.actor.parameters()), lr=self.policy_cfg["learning_rate"])
 
         _, _ = self.env.reset()
     
@@ -136,9 +138,17 @@ class TrainStudentRunnerCost:
                 #train student encoder
                 
                 mse_loss = (teacher_latent_vector - student_latent_vector).pow(2).mean()
-                self.student_encoder.optim.zero_grad()
-                mse_loss.backward()
-                self.student_encoder.optim.step()
+                if self.policy_cfg["use_action_loss"]:
+                    teacher_actions = self.teacher_alg.actor_critic.act_inference(obs, critic_obs).detach().clone()
+                    action_loss = (actions - teacher_actions).pow(2).mean()
+                    mse_loss += action_loss
+                    self.optim.zero_grad()
+                    mse_loss.backward()
+                    self.optim.step()
+                else:
+                    self.student_encoder.optim.zero_grad()
+                    mse_loss.backward()
+                    self.student_encoder.optim.step()
 
                 #process trajectory history
                 env_ids = dones.nonzero(as_tuple=False).flatten()

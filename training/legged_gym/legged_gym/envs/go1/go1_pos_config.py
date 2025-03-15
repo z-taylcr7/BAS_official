@@ -234,6 +234,12 @@ class Go1PosRoughCfgPPO( LeggedRobotCfgPPO ):
     class runner( LeggedRobotCfgPPO.runner ):
         run_name = ''
         experiment_name = 'go1_pos_rough'
+    class policy( LeggedRobotCfgPPO.policy ):
+        use_estimation = False
+        learn_estimation = False # Set this to True to collect dataset for privileged estimation
+        rl_end2end = False
+        latent_dim = 12
+        privileged_dim = 0
 
 class Go1PosRoughCfgPPOLagrangian( LeggedRobotCfgPPOLagrangian ):
     class algorithm( LeggedRobotCfgPPOLagrangian.algorithm ):

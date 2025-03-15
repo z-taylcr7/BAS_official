@@ -302,6 +302,7 @@ class LeggedRobot(BaseTask):
 
             for s in range(len(props)):
                 props[s].friction = self.friction_coeffs[env_id]
+            self.envs_friction[env_id] = props[0].friction
         return props
 
     def _process_dof_props(self, props, env_id):
@@ -334,9 +335,43 @@ class LeggedRobot(BaseTask):
         return props
 
     def _process_rigid_body_props(self, props, env_id):
-        if self.cfg.domain_rand.randomize_base_mass:
+        # if env_id==0:
+        #     sum = 0
+        #     for i, p in enumerate(props):
+        #         sum += p.mass
+        #         print(f"Mass of body {i}: {p.mass} (before randomization)")
+        #     print(f"Total mass {sum} (before randomization)")
+        # randomize base mass
+        if self.cfg.domain_rand.randomize_base_mass: 
             rng = self.cfg.domain_rand.added_mass_range
-            props[0].mass += np.random.uniform(rng[0], rng[1])
+            added = np.random.uniform(rng[0], rng[1])
+            props[0].mass = self.base_mass+added
+            self.envs_loads[env_id] = added 
+            if env_id==0:
+                print(f"Added mass: {added}")
+            rng_x = self.cfg.domain_rand.com_pos_x_range
+            rng_y = self.cfg.domain_rand.com_pos_y_range
+            rng_z = self.cfg.domain_rand.com_pos_z_range
+            d_com_x = np.random.uniform(rng_x[0],rng_x[1])*self.envs_loads[env_id]/(self.base_mass+self.envs_loads[env_id])
+            d_com_y = np.random.uniform(rng_y[0],rng_y[1])*self.envs_loads[env_id]/(self.base_mass+self.envs_loads[env_id])
+            d_com_z = np.random.uniform(rng_z[0],rng_z[1])*self.envs_loads[env_id]/(self.base_mass+self.envs_loads[env_id])
+            self.envs_com[env_id][0] = d_com_x
+            self.envs_com[env_id][1] = d_com_y
+            self.envs_com[env_id][2] = d_com_z
+            props[0].com.x+=d_com_x
+            props[0].com.y+=d_com_y
+            props[0].com.z+=d_com_z 
+                
+                
+                
+                # self.change_rate_limit[env_id] = change_rate
+            # else: 
+            #     added = torch.clip(self.envs_loads[env_id]+torch.rand(1,device=self.device)*(self.change_rate_limit[env_id]),rng[0],rng[1])
+            #     print(f"Added mass: {self.envs_loads[env_id]}")
+            #     print(f"Change rate: {self.change_rate_limit[env_id]}")
+            #     props[0].mass = self.base_mass + added
+            #     self.envs_loads[env_id] = added
+
         return props
     
     def _post_physics_step_callback(self):
@@ -805,6 +840,9 @@ class LeggedRobot(BaseTask):
         env_upper = gymapi.Vec3(0., 0., 0.)
         self.actor_handles = []
         self.envs = []
+        self.envs_friction = torch.zeros(self.num_envs, 1, device=self.device)
+        self.envs_loads = torch.zeros(self.num_envs, 1, device=self.device)
+        self.envs_com = torch.zeros(self.num_envs, 3, device=self.device)
         if self.cfg.asset.load_dynamic_object:
             self.object_handles = []
         if self.cfg.sensors.depth_cam.enable:
@@ -837,6 +875,7 @@ class LeggedRobot(BaseTask):
             dof_props = self._process_dof_props(dof_props_asset, i)
             self.gym.set_actor_dof_properties(env_handle, actor_handle, dof_props)
             body_props = self.gym.get_actor_rigid_body_properties(env_handle, actor_handle)
+            self.base_mass = body_props[0].mass
             body_props = self._process_rigid_body_props(body_props, i)
             self.gym.set_actor_rigid_body_properties(env_handle, actor_handle, body_props, recomputeInertia=True)
             self.envs.append(env_handle)

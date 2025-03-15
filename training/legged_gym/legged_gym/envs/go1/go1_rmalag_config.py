@@ -37,8 +37,6 @@ class Go1TeacherRoughCfg( LeggedRobotPosCfg ):
     class env(LeggedRobotPosCfg.env):
         num_observations = 61+2
         privileged_obs = True # if True, add the privileged information in the obs
-        # privileged_dim = 6
-        # num_observations = 61+privileged_dim
         num_envs = 1280
         episode_length_s = 9 # episode length in seconds  # will be randomized in [s-minus, s]
         privilege_enable = True
@@ -289,7 +287,7 @@ class Go1TeacherRoughCfgPPO( LeggedRobotCfgPPO ):
         rl_end2end = False
         latent_dim = 12
         privileged_dim = 5
-        use_action_loss = True
+        use_action_loss = False
 
 class Go1StudentRoughCfgPPO( Go1TeacherRoughCfgPPO ):
     runner_class_name = 'TrainStudentRunner'
@@ -309,7 +307,7 @@ class Go1TeacherRoughCfgPPOLagrangian( LeggedRobotCfgPPO ):
         rl_end2end = False
         latent_dim = 12
         privileged_dim = 5
-        use_action_loss = True
+        use_action_loss = False
 
 class Go1StudentRoughCfgPPOLagrangian( Go1TeacherRoughCfgPPOLagrangian):
     runner_class_name = 'TrainStudentRunnerCost'

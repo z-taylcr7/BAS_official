@@ -214,52 +214,32 @@ class Go1PosEstimatorRoughCfg( LeggedRobotPosCfg ):
 
     class rewards():
         class scales():
-            termination = -100. # -60.0
-            # termination = -150. # -60.0
+            termination = -100. 
             
             reach_pos_target_soft = 60.0
             reach_pos_target_tight = 60.0
             reach_heading_target = 30.0
-
-            # reach_pos_target_soft = 80.0
-            # reach_pos_target_tight = 80.0
-            # reach_heading_target = 40.0
             reach_pos_target_times_heading = 0.0
 
             # velo_dir = 5.0 # conservative
             velo_dir = 10.0 # nominal
             # velo_dir = 20.0 # aggressive
             
-            torques = -0.0005 # -0.0002
+            torques = -0.0005 
             dof_pos_limits = -20.0
-            # dof_pos_limits = -25.0
-            dof_vel = -0.0005 #  -0.0002
-            torque_limits = -30.0 # -5.0
-            # torque_limits = -40.0
-            dof_vel_limits = -20.0 # -5.0
-            
+            dof_vel = -0.0005 
+            torque_limits = -30.0 
+            dof_vel_limits = -20.0
             lin_vel_z = -2.0
             ang_vel_xy = -0.05
             dof_acc = -2.0e-7
-
-            collision = -100. # -60.0
-            # collision = -150. # -60.0
+            collision = -100. 
             feet_collision = -100.
-            # feet_collision = -150.
-
-            # action_rate = -0.02
             action_rate = -0.02
-            
-            # stand_still_pos = -10.0
             stand_still_pos = -10.0
-            # stand_still_action_pos = -1.0
             orientation = -20.0
             fly = -20.0
-            # fly = -30.0
             nomove = -20.0
-            # nomove = -30.0
-            # slippage = -5.0 # 0.5
-            # clearance = -0.0
 
 
         soft_dof_pos_limit = 0.95
@@ -323,9 +303,6 @@ class Go1PosEstimatorRoughCfgPPOLagrangian( LeggedRobotCfgPPOLagrangian ):
         run_name = ''
         experiment_name = 'go1_pos_rough_lag'
     class policy( LeggedRobotCfgPPOLagrangian.policy ):
-        # use_hist = False
-        # use_privi_estimation = False
-        # record_privi = False
         use_estimation = True
         learn_estimation = True # Set this to True to collect dataset for privileged estimation
         rl_end2end = False
@@ -333,7 +310,7 @@ class Go1PosEstimatorRoughCfgPPOLagrangian( LeggedRobotCfgPPOLagrangian ):
         privileged_dim = 5
 # RL update
         
-class Go1PosEstimatorRoughCfgPPO_RLupdate( Go1PosEstimatorRoughCfgPPO ):
+class Go1PosEstimatorRoughCfgPPO_Implicit( Go1PosEstimatorRoughCfgPPO ):
     class runner( Go1PosEstimatorRoughCfgPPO.runner ):
         run_name = ''
         experiment_name = 'go1_pos_rough_RL_end2end'

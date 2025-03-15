@@ -52,10 +52,12 @@ class LeggedRobotPosCfg(LeggedRobotCfg):
 
     class domain_rand:
         randomize_friction = True
-        # friction_range = [0.5, 1.25]
-        friction_range = [-0.4, 1.25]
+        friction_range = [-0.5, 2]
+        com_pos_x_range = [-0.05, 0.05]
+        com_pos_y_range = [-0.08, 0.08]
+        com_pos_z_range = [0, 0.1]
         randomize_base_mass = True
-        added_mass_range = [-1., 1.]
+        added_mass_range = [-2., 12.]
         push_robots = True
         push_interval_s = 2.5
         max_push_vel_xy = 0.6
@@ -92,6 +94,9 @@ class LeggedRobotPosCfg(LeggedRobotCfg):
             dof_pos = 1.0
             dof_vel = 0.2
             height_measurements = 2.0
+            mass = 0.5
+            friction = 1.0
+            com = 10.0
         clip_observations = 100.
         clip_actions = 100.
 

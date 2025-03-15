@@ -75,8 +75,11 @@ Please read through the whole README.md before cloning the repo.
 
    for go1, in `legged_gym/legged_gym`,
     ```text
-   # BAS agile policy along with estimator
+   # BAS agile policy along with explicit estimator
    python scripts/train.py --task=go1_pos_estimator_rough --max_iterations=5000 
+
+   # BAS agile policy w/o explicit estimator (w/ implicit estimator)
+   python scripts/train.py --task=go1_pos_implicit_estimator_rough --max_iterations=5000 
    
    # ABS agile policy
    python scripts/train.py --task=go1_pos_rough --max_iterations=5000 
@@ -87,6 +90,7 @@ Please read through the whole README.md before cloning the repo.
    # RMA-PPO-Lagrangian agile policy
    python scripts/rma_train_teacher.py --task=go1_teacher_rough_ppo_lagrangian --max_iterations=5000
    python scripts/rma_train_student.py --task=go1_student_rough_ppo_lagrangian --max_iterations=5000
+   # Turn from `RMA` to `Action-Distill` in one code by setting `use_action_loss=True`
    
    # recovery policy
    python scripts/train.py --task=go1_rec_rough --max_iterations=1000
@@ -100,26 +104,28 @@ Please read through the whole README.md before cloning the repo.
    python scripts/play_bas.py --task=go1_rec_rough
    ```
 
-7. Use the testbed, and train/test Reach-Avoid network:
+7. Use the testbed, and train/test Reach-Avoid network (Taking BAS as example):
 
    ```text
-   # try testbed
-   python scripts/bas_testbed.py --task=go1_pos_estimator_rough [--load_run=xxx] --num_envs=1
+   # For following steps in 7&8, you can change `bas` in filename to [`abs`, 'rma_teacher', 'rma_student', `implicit`] for other entries
 
+   # try testbed
+   python scripts/testbeds/bas_testbed.py --task=go1_pos_estimator_rough [--load_run=xxx] --num_envs=1 
+   
    # train RA (be patient it will take time to converge) 
    # make sure you have at least exported one policy by play.py so the exported folder exists
-   python scripts/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1000 --headless --trainRA
+   python scripts/testbeds/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1000 --headless --trainRA
    
    # test RA (only when you have trained one RA)
-   python scripts/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1 --testRA
+   python scripts/testbeds/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1 --testRA
    
    # evaluate
-   python scripts/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1000 --headless [--load_run=xxx] [--testRA]
+   python scripts/testbeds/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1000 --headless [--load_run=xxx] [--testRA]
    ```
 8. On-policy finetuning on estimator
    ```text
    # try finetune
-   python scripts/bas_finetune_testbed.py --task=go1_pos_rough --num_envs=1000 --headless [--load_run=xxx] --testRA
+   python scripts/testbeds/bas_finetune_testbed.py --task=go1_pos_rough --num_envs=1000 --headless [--load_run=xxx] --testRA
    ```
 9.  Sample dataset for ray-prediction network training
    ```cmd

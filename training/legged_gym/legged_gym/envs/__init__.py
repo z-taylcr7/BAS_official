@@ -45,7 +45,7 @@ from .go1.go1_config import Go1RoughCfg, Go1RoughCfgPPO, Go1RoughCfgNoPenalty, G
 from .go1.go1_pos_config import Go1PosRoughCfg, Go1PosRoughCfgPPO, Go1PosRoughCfgNoPenalty, Go1PosRoughCfgPPOLagrangian
 from .go1.go1_rec_config import Go1RecRoughCfg, Go1RecRoughCfgPPO
 from .go1.go1_rmalag_config import Go1TeacherRoughCfgNoPenalty, Go1TeacherRoughCfgPPOLagrangian, Go1StudentRoughCfgPPOLagrangian
-from .go1.go1_pos_estimator_config import Go1PosEstimatorRoughCfg, Go1PosEstimatorRoughCfgNoPenalty, Go1PosEstimatorRoughCfgPPO,Go1PosEstimatorRoughCfgPPO_RLupdate,Go1PosEstimatorRoughCfgPPOLagrangian
+from .go1.go1_pos_estimator_config import Go1PosEstimatorRoughCfg, Go1PosEstimatorRoughCfgNoPenalty, Go1PosEstimatorRoughCfgPPO,Go1PosEstimatorRoughCfgPPO_Implicit,Go1PosEstimatorRoughCfgPPOLagrangian
 import os
 
 from legged_gym.utils.task_registry import task_registry
@@ -68,7 +68,7 @@ task_registry.register( "go1_pos_rough_ppo_lagrangian", LeggedRobotPos, Go1PosRo
 task_registry.register( "go1_pos_estimator_rough", LeggedRobotPos, Go1PosEstimatorRoughCfg(), Go1PosEstimatorRoughCfgPPO())
 
 ## RL end2end (PPO updates the esti)
-task_registry.register( "go1_pos_estimator_rough_rlupdate", LeggedRobotPos, Go1PosEstimatorRoughCfg(), Go1PosEstimatorRoughCfgPPO_RLupdate())
+task_registry.register( "go1_pos_implicit_estimator_rough", LeggedRobotPos, Go1PosEstimatorRoughCfg(), Go1PosEstimatorRoughCfgPPO_Implicit())
 
 ## RMA+Lag
 task_registry.register( "go1_teacher_rough_ppo_lagrangian", LeggedRobotTeacher, Go1TeacherRoughCfgNoPenalty(), Go1TeacherRoughCfgPPOLagrangian())
