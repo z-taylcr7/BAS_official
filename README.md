@@ -4,7 +4,7 @@ Official Implementation for [Bridging Adaptivity and Safety:
 Learning Agile Collision-Free Locomotion
 Across Varied Physics](https://adaptive-safe-locomotion.github.io/).
 
-Under Review
+L4DC 2025
 
 [Yichao Zhong](https://z-taylcr7.github.io/), [Chong Zhang](https://zita-ch.github.io/), [Tairan He](https://tairanhe.com/), [Guanya Shi](https://www.gshi.me/)  
 
@@ -18,7 +18,7 @@ Please read through the whole README.md before cloning the repo.
 
 ## Training in Simulation
 
-### Pipeline to Install and Train ABS
+### Installation and Training Pipelines
 
 **Note**: Before running our code, it's highly recommended to first play with [RSL's Legged Gym version](https://github.com/leggedrobotics/legged_gym) to get a basic understanding of the Isaac-LeggedGym-RslRL framework.
    <!-- <br/><br/> -->
@@ -76,32 +76,32 @@ Please read through the whole README.md before cloning the repo.
    for go1, in `legged_gym/legged_gym`,
     ```text
    # BAS agile policy along with explicit estimator
-   python scripts/train.py --task=go1_pos_estimator_rough --max_iterations=5000 
+   python scripts/trains/train.py --task=go1_pos_estimator_rough --max_iterations=5000 
 
    # BAS agile policy w/o explicit estimator (w/ implicit estimator)
-   python scripts/train.py --task=go1_pos_implicit_estimator_rough --max_iterations=5000 
+   python scripts/trains/train.py --task=go1_pos_implicit_estimator_rough --max_iterations=5000 
    
    # ABS agile policy
-   python scripts/train.py --task=go1_pos_rough --max_iterations=5000 
+   python scripts/trains/train.py --task=go1_pos_rough --max_iterations=5000 
    
    # PPO-Lagrangian agile policy
-   python scripts/train.py --task=go1_pos_rough_ppo_lagrangian --max_iterations=5000
+   python scripts/trains/train.py --task=go1_pos_rough_ppo_lagrangian --max_iterations=5000
    
    # RMA-PPO-Lagrangian agile policy
-   python scripts/rma_train_teacher.py --task=go1_teacher_rough_ppo_lagrangian --max_iterations=5000
-   python scripts/rma_train_student.py --task=go1_student_rough_ppo_lagrangian --max_iterations=5000
+   python scripts/trains/rma_train_teacher.py --task=go1_teacher_rough_ppo_lagrangian --max_iterations=5000
+   python scripts/trains/rma_train_student.py --task=go1_student_rough_ppo_lagrangian --max_iterations=5000
    # Turn from `RMA` to `Action-Distill` in one code by setting `use_action_loss=True`
    
    # recovery policy
-   python scripts/train.py --task=go1_rec_rough --max_iterations=1000
+   python scripts/trains/train.py --task=go1_rec_rough --max_iterations=1000
    ```
 
    
 6. Play the trained policy
 
    ```cmd
-   python scripts/play_bas.py --task=go1_pos_rough
-   python scripts/play_bas.py --task=go1_rec_rough
+   python scripts/plays/play_bas.py --task=go1_pos_rough
+   python scripts/plays/play_bas.py --task=go1_rec_rough
    ```
 
 7. Use the testbed, and train/test Reach-Avoid network (Taking BAS as example):
@@ -121,15 +121,14 @@ Please read through the whole README.md before cloning the repo.
    
    # evaluate
    python scripts/testbeds/bas_testbed.py --task=go1_pos_estimator_rough --num_envs=1000 --headless [--load_run=xxx] [--testRA]
-   ```
-8. On-policy finetuning on estimator
-   ```text
-   # try finetune
+   
+   # On-policy finetuning on estimator
    python scripts/testbeds/bas_finetune_testbed.py --task=go1_pos_rough --num_envs=1000 --headless [--load_run=xxx] --testRA
    ```
-9.  Sample dataset for ray-prediction network training
+   
+8.  Sample dataset for ray-prediction network training
    ```cmd
-   python scripts/camrec.py --task=go1_pos_rough --num_envs=3
+   python scripts/trains/camrec.py --task=go1_pos_rough --num_envs=3
    ```
    + Tips 1: You can edit the `shift` value in Line 93 and the `log_root` in Line 87 to collect different dataset files in parallel (so you can merge them by simply moving the files), and manually change the obstacles in `env_cfg.asset.object_files` in Line 63.
    + Tips 2: After collecting the data, there's a template code in [`train_depth_resnet.py`](training/legged_gym/legged_gym/scripts/train_depth_resnet.py) to train the ray-prediction network, but using what you like for training CV models is highly encouraged!
