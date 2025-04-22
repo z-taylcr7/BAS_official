@@ -30,6 +30,9 @@
 
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfgPPO, LeggedRobotCfgPPOLagrangian
 from legged_gym.envs.base.legged_robot_pos_config import LeggedRobotPosCfg
+from rsl_rl.modules import ActorCriticEstimator
+from rsl_rl.runners import OnPolicyEstimatorRunner
+
 import numpy as np
 
 class Go1PosEstimatorRoughCfg( LeggedRobotPosCfg ):
@@ -283,17 +286,20 @@ class Go1PosEstimatorRoughCfgNoPenalty( Go1PosEstimatorRoughCfg ):
         
 
 class Go1PosEstimatorRoughCfgPPO( LeggedRobotCfgPPO ):
+    runner_class_name = 'OnPolicyEstimatorRunner'
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.003
     class runner( LeggedRobotCfgPPO.runner ):
         run_name = ''
         experiment_name = 'go1_pos_rough'
+        policy_class_name = 'ActorCriticEstimator'
     class policy( LeggedRobotCfgPPO.policy ):
         use_estimation = True
         learn_estimation = True # Set this to True to collect dataset for privileged estimation
-        rl_end2end = False
+        implicit_estimation = False
         latent_dim = 12
-        privileged_dim = 5
+        estimated_dim = 5
+        history_length = 50
 
 class Go1PosEstimatorRoughCfgPPOLagrangian( LeggedRobotCfgPPOLagrangian ):
     
@@ -305,18 +311,18 @@ class Go1PosEstimatorRoughCfgPPOLagrangian( LeggedRobotCfgPPOLagrangian ):
     class policy( LeggedRobotCfgPPOLagrangian.policy ):
         use_estimation = True
         learn_estimation = True # Set this to True to collect dataset for privileged estimation
-        rl_end2end = False
+        implicit_estimation = False
         latent_dim = 12
-        privileged_dim = 5
+        estimated_dim = 5
 # RL update
         
 class Go1PosEstimatorRoughCfgPPO_Implicit( Go1PosEstimatorRoughCfgPPO ):
     class runner( Go1PosEstimatorRoughCfgPPO.runner ):
         run_name = ''
-        experiment_name = 'go1_pos_rough_RL_end2end'
+        experiment_name = 'go1_pos_rough_implicit'
     class policy( Go1PosEstimatorRoughCfgPPO.policy ):
-        use_hist = True
-        use_privi_estimation = True
-        rl_end2end = True
-        privileged_dim = 12
+        use_estimation = True
+        use_estimation = True
+        implicit_estimation = True
+        estimated_dim = 12
 

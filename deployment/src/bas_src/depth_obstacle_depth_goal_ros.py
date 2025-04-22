@@ -22,6 +22,7 @@ from std_msgs.msg import String, Header, Float64MultiArray
 import onnxruntime
 
 
+ESTIMATE_DIM = 5
 
 def quat_rotate_inverse(q, v):
     shape = q.shape
@@ -95,7 +96,7 @@ def transform_global_xy_to_robot_xy(global_xy, robot_xy, robot_rotation_z):
 
 def make_observation_from_lowhigh_state(low_state, last_action, timestep_50hz, lidar_obs, turn, position_xy_rotation_z_obs, goal_xyz):
         
-    observation = np.zeros(61, dtype=np.float32)
+    observation = np.zeros(61+ESTIMATE_DIM, dtype=np.float32)
     ### observation 
     # base lin vel 3dim
     # base ang vel 3dim
@@ -209,6 +210,7 @@ def make_observation_from_lowhigh_state(low_state, last_action, timestep_50hz, l
     # ========== lidar 19dim ==========
 
     observation[50:61] = np.log2(np.clip(lidar_obs, 0.1, 6))
+    observation[61:] = 0 
     # hack for debugging
     # observation[50:61] = np.log2(6)
 
@@ -275,6 +277,32 @@ class MocapInfo:
         if not self.get_go1_info and not self.get_obstacle_info:
             rospy.logwarn_throttle(1, "No Mocap info received")
 
+class EstiInfo:
+    def __init__(self) -> None:
+        self.get_info = False
+        self.mass = np.zeros((1,latent_dim), dtype=np.float64)
+    
+    def mass_callback(self, msg):
+        self.get_info = True
+        self.mass = np.array(msg.data, dtype=np.float64).reshape(1,-1)
+
+    def check(self):
+        if not self.get_info:
+            rospy.logwarn_throttle(1, "No mass info received")
+            
+class RAInfo:
+    def __init__(self) -> None:
+        self.get_info = False
+        self.ra = np.zeros((1,1), dtype=np.float64)
+
+    def ra_callback(self, msg):
+        self.get_info = True
+        self.ra = np.array(msg.data, dtype=np.float64).reshape(1,1)
+    
+    def check(self):
+        if not self.get_info:
+            rospy.logwarn_throttle(1, "No RA info received")
+
 def get_pos_integral(twist, tau):
     # taylored as approximation
     vx, vy, wz = twist[...,0], twist[...,1], twist[...,2]
@@ -307,12 +335,17 @@ if __name__ == '__main__':
     depth_info = DepthInfo()
     linvelo_info = LinveloInfo()
     position_xy_rotation_z_info = PositionXY_RotationZ_Info()
-
+    mass_info = EstiInfo()
+    RA_info = RAInfo()
+    
     sub_lidar = rospy.Subscriber("zed_lidar", Float64MultiArray, depth_info.lidar_callback, queue_size=5)
     sub_linvelo = rospy.Subscriber("zed_linvelo", Float64MultiArray, linvelo_info.linvelo_callback, queue_size=5)
     sub_position_xy_rotation_z = rospy.Subscriber("zed_position_xy_rotation_z", Float64MultiArray, position_xy_rotation_z_info.position_xy_rotation_z_callback, queue_size=5)
     pub_RA = rospy.Publisher('RA_value', Float64MultiArray, queue_size=10)
+    sub_mass = rospy.Subscriber('esti_value', Float64MultiArray, mass_info.mass_callback, queue_size=10)
     
+    pub_RA = rospy.Publisher('RA_value', Float64MultiArray, queue_size=10)
+    pub_obs = rospy.Publisher('observation', Float64MultiArray, queue_size=10)
 
 
     NUM_JOINTS = 12
@@ -386,6 +419,12 @@ if __name__ == '__main__':
     cmd = sdk.LowCmd()
     low_state = sdk.LowState()
     lowudp.InitCmdData(cmd)
+    for i in range(NUM_JOINTS): #Kp Kd Tau won't change in a run
+        cmd.motorCmd[i].dq = 0
+        cmd.motorCmd[i].Kp = 30
+        cmd.motorCmd[i].Kd = 0.65
+        cmd.motorCmd[i].tau = 0 # no torque control
+
 
     
     motiontime = 0
@@ -460,7 +499,17 @@ if __name__ == '__main__':
         position_xy_rotation_z_info.check()
 
         obs = make_observation_from_lowhigh_state(low_state=low_state, last_action=last_action, timestep_50hz=timestep_50hz, lidar_obs=lidar_obs, turn=turn, position_xy_rotation_z_obs=position_xy_rotation_z_obs, goal_xyz=goal_xyz)
+        
+        esti_value = mass_info.mass
+        mass_info.check()
+        print("esti_value = ", esti_value)
+        obs[61:] = esti_value
 
+        obs_msg = Float64MultiArray()
+        cur_timestep = time.time()
+        obs_msg.data = list(np.concatenate([obs, [cur_timestep]]))
+        pub_obs.publish(obs_msg)
+        
         history = np.roll(history, 1, axis=1)
         history[0, 0] = obs[:50]
         
@@ -487,7 +536,7 @@ if __name__ == '__main__':
                 ra_obs = torch.cat([  torch.from_numpy(linvelo_obs[0]),  # Convert to PyTorch tensor
                                         torch.from_numpy(obs[4:7]),  # Convert to PyTorch tensor
                                         torch.from_numpy(obs[10:12]),  # Convert to PyTorch tensor
-                                        torch.from_numpy(obs[50:61])  # Convert to PyTorch tensor
+                                        torch.from_numpy(obs[50:])  # Convert to PyTorch tensor
                                     ], dim=-1).float()
 
                 ra_value = RA_model(ra_obs.unsqueeze(0)).detach().numpy()[0][0]
@@ -607,10 +656,10 @@ if __name__ == '__main__':
                 cmd.motorCmd[policy_to_unitreecmd[i]].q = torch.clip(action[i] * 0.25 + 0.8, -0.663, 2.966)
             elif i % 3 == 2:
                 cmd.motorCmd[policy_to_unitreecmd[i]].q = torch.clip(action[i] * 0.25 + (-1.5), -2.721, -0.837)
-            cmd.motorCmd[i].dq = 0
-            cmd.motorCmd[i].Kp = 30
-            cmd.motorCmd[i].Kd = 0.65
-            cmd.motorCmd[i].tau = 0 # no torque control
+            # cmd.motorCmd[i].dq = 0
+            # cmd.motorCmd[i].Kp = 30
+            # cmd.motorCmd[i].Kd = 0.65
+            # cmd.motorCmd[i].tau = 0 # no torque control
         
         last_action = action
 

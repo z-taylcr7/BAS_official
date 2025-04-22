@@ -110,6 +110,10 @@ class Go1PosRoughCfg( LeggedRobotPosCfg ):
         max_dof_bias = 0.08
         randomize_timer_minus = 2.0  # timer_left is initialized with randomization: U(T-this, T)
 
+        com_pos_x_range = [-0.05, 0.05]
+        com_pos_y_range = [-0.08, 0.08]
+        com_pos_z_range = [0, 0.1]
+
         push_robots = True
         push_interval_s = 2.5
         max_push_vel_xy = 0.0  # not used
@@ -129,7 +133,6 @@ class Go1PosRoughCfg( LeggedRobotPosCfg ):
         randomize_init_dof = True
         init_dof_factor=[0.5, 1.5]
         stand_bias3 = [0.0, 0.0, 0.0]
-
         erfi = True
         erfi_torq_lim = 7.0/9  # per level, curriculum
 
@@ -237,9 +240,9 @@ class Go1PosRoughCfgPPO( LeggedRobotCfgPPO ):
     class policy( LeggedRobotCfgPPO.policy ):
         use_estimation = False
         learn_estimation = False # Set this to True to collect dataset for privileged estimation
-        rl_end2end = False
+        implicit_estimation = False
         latent_dim = 12
-        privileged_dim = 0
+        estimated_dim = 0
 
 class Go1PosRoughCfgPPOLagrangian( LeggedRobotCfgPPOLagrangian ):
     class algorithm( LeggedRobotCfgPPOLagrangian.algorithm ):

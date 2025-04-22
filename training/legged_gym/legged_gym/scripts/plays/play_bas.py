@@ -85,7 +85,7 @@ def play(args, name):
     #     env_cfg.env.privilege_enable = False
     #     env_cfg.env.num_observations = 61
     #     train_cfg.policy.decoder_enabled=True
-    #     train_cfg.policy.use_privi_estimation = False
+    #     train_cfg.policy.use_estimation = False
     #     play_mode = 2
     # else:
     #     print('EX')
@@ -93,7 +93,7 @@ def play(args, name):
     #     env_cfg.env.privilege_enable = False
     #     env_cfg.env.num_observations = 61
     #     train_cfg.policy.decoder_enabled=False
-    #     train_cfg.policy.use_privi_estimation = True
+    #     train_cfg.policy.use_estimation = True
    
     
     # prepare environment
@@ -217,7 +217,7 @@ def play(args, name):
                 np.savez(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', args.task,'exported', 'offline_dataset',args.load_run,'data_'+name+'-'+str(i)+'.npz'), obs_histories=obs_history_dataset, added_masses=mass_dataset)
                 mass_dataset = []
                 obs_history_dataset = []
-        if ppo_runner.policy_cfg['use_privi_estimation'] and play_mode==1:
+        if ppo_runner.policy_cfg['use_estimation'] and play_mode==1:
             with torch.no_grad():
                 x = obs_history
                 t = x[:,-1,13:14]

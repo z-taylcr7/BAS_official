@@ -141,7 +141,7 @@ def play(args):
     env_cfg.env.privilege_enable = False
     # env_cfg.env.num_observations = 61
     train_cfg.policy.decoder_enabled=False
-    train_cfg.policy.use_privi_estimation = False
+    train_cfg.policy.use_estimation = False
 
     env_cfg.domain_rand.randomize_friction = True
     if not base_DR_enabled: env_cfg.domain_rand.friction_range = [1.0, 1.0] # (1 - x)/2

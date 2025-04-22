@@ -27,10 +27,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
-
+from .tcn_encoder import TcnEncoder
 from .on_policy_runner import OnPolicyRunner
 from .on_policy_runner_cost import OnPolicyRunnerCost
 from .on_policy_estimator_runner import OnPolicyEstimatorRunner
 from .student_policy_runner_cost import TrainStudentRunnerCost
 from .teacher_policy_runner_cost import TrainTeacherRunnerCost
-from .tcn_encoder import TcnEncoder

@@ -167,7 +167,7 @@ def play(args):
         env_cfg.env.privilege_enable = False
         env_cfg.env.num_observations = 61
         train_cfg.policy.decoder_enabled=True
-        train_cfg.policy.use_privi_estimation = False
+        train_cfg.policy.use_estimation = False
     print("args.payload", args.payload)
     if args.payload is not None:
         env_cfg.domain_rand.added_mass_range = [args.payload, args.payload]

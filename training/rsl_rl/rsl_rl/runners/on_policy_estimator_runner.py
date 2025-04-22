@@ -39,7 +39,7 @@ from torch import nn as nn
 import numpy as np
 
 from rsl_rl.algorithms import PPO
-from rsl_rl.modules import ActorCritic, ActorCriticRecurrent
+from rsl_rl.modules import ActorCritic, ActorCriticRecurrent, ActorCriticEstimator
 from rsl_rl.env import VecEnv
 
 
@@ -73,7 +73,7 @@ class OnPolicyEstimatorRunner:
         self.alg: PPO = alg_class(actor_critic, device=self.device, **self.alg_cfg)
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
         self.save_interval = self.cfg["save_interval"]
-        self.use_hist = self.policy_cfg["use_hist"]
+        self.use_estimation = self.policy_cfg["use_estimation"]
         self.history_length = self.policy_cfg["history_length"]
         self.estimated_dim = self.policy_cfg["estimated_dim"]
         self.latent_dim = self.policy_cfg["latent_dim"]
@@ -83,7 +83,7 @@ class OnPolicyEstimatorRunner:
         # init storage and model
         self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.actor_dim], [self.critic_dim], [self.env.num_actions])
 
-        if self.policy_cfg["use_estimator"]:
+        if self.policy_cfg["use_estimation"]:
             self.estimate_estimated_dim = self.estimated_dim
             # self.privileged_obs_estimator = nn.Sequential(nn.Linear(self.policy_cfg['history_length']*len(self.proception_dims), 64),nn.ReLU(), nn.Linear(64,64),nn.ReLU(),nn.Linear(64,self.estimate_estimated_dim)).to(self.device)
             self.privileged_obs_estimator = Estimator(input_dim=len(self.proception_dims),
@@ -91,19 +91,19 @@ class OnPolicyEstimatorRunner:
             output_dim=self.estimated_dim, 
             nn_type='mlp').to(self.device)
             
-            if self.policy_cfg["rl_end2end"]: # if True, PPO will update the estimator
-                if self.policy_cfg["learn_estimator"]:
+            if self.policy_cfg["implicit_estimation"]: # if True, PPO will update the estimator
+                if self.policy_cfg["learn_estimation"]:
                     self.alg.optimizer = torch.optim.Adam(list(self.alg.actor_critic.parameters())+list(self.privileged_obs_estimator.parameters()), lr=2e-5)  
                 else:
-                    self.privileged_obs_estimator.model = torch.load("legged_gym/logs/go1_pos_rough/abs_n_mcomp_esti/model_15000_privi.pt")
+                    self.privileged_obs_estimator.model = torch.load("legged_gym/logs/go1_pos_rough/your_ckpt.pt")
                     self.privileged_obs_estimator.model.eval()
             else: # Stop gradient between PPO and estimator
-                if self.policy_cfg["learn_estimator"]:
+                if self.policy_cfg["learn_estimation"]:
                     self.privileged_obs_estimator.train()
                     self.privileged_obs_optimizer = torch.optim.Adam(self.privileged_obs_estimator.parameters(), lr=2e-5)
                     self.privileged_obs_optimizer.zero_grad() 
                 else:# override a fixed estimator
-                    self.privileged_obs_estimator.model = torch.load("legged_gym/logs/go1_pos_rough/abs_n_mcomp_esti/model_15000_privi.pt")
+                    self.privileged_obs_estimator.model = torch.load("legged_gym/logs/go1_pos_rough/your_ckpt.pt")
                     self.privileged_obs_estimator.model.eval()
         # Log
         self.log_dir = log_dir
@@ -123,24 +123,24 @@ class OnPolicyEstimatorRunner:
         
         obs = self.env.get_observations()
         privileged_obs = self.env.get_privileged_observations()
-        if self.policy_cfg["use_estimator"]: # using estimator means you need to record history
+        if self.policy_cfg["use_estimation"]: # using estimator means you need to record history
             obs_history = torch.zeros((self.env.num_envs, self.history_length, len(self.proception_dims)), device=self.device)
             print(f"History length: {self.history_length}")
         # critic_obs = privileged_obs if privileged_obs is not None else obs
         latent = torch.zeros((self.env.num_envs, self.latent_dim), device=self.device)
         critic_obs = obs 
-        
+        ep_infos = []
         l_recon = 0.5
 
         obs, critic_obs = obs.to(self.device), critic_obs.to(self.device)
         privileged_obs = privileged_obs.to(self.device) if privileged_obs is not None else None
-        if self.policy_cfg["use_estimator"]:
+        if self.policy_cfg["use_estimation"]:
             privileged_obs = self.privileged_obs_estimator(obs_history.clone()).squeeze(0)
             obs = torch.cat((obs, privileged_obs), dim=-1)
             critic_obs = torch.cat((critic_obs, privileged_obs), dim=-1)
         self.alg.actor_critic.train() # switch to train mode (for dropout for example)
         # self.alg.actor_critic.eval()
-        if self.policy_cfg["use_estimator"]:
+        if self.policy_cfg["use_estimation"]:
             self.privileged_obs_estimator.train()
         rewbuffer = deque(maxlen=100)
         costbuffer = deque(maxlen=100)
@@ -158,10 +158,10 @@ class OnPolicyEstimatorRunner:
             if it % 2 == 0: # 2 is a compromise to memory...
                 obs_history_buffer = []
                 privileged_obs_buffer = []
-            if not self.policy_cfg["use_privi_estimation"]:
+            if not self.policy_cfg["use_estimation"]:
                 it_rate = 0.0
             else:
-                it_rate = (it-self.current_learning_iteration)/(tot_iter-5000-self.current_learning_iteration) # linear fusion, + fine-tuning in last 5000 iterations
+                it_rate = (it-self.current_learning_iteration)/(tot_iter-self.current_learning_iteration) # linear fusion, + fine-tuning in last 5000 iterations
                 # it_rate = 1 # supervised 
                 # it_rate = 0 # ground-truth
                 it_rate = min(1.0, it_rate) # This ensures that `it_rate` does not exceed 1.0.
@@ -176,9 +176,8 @@ class OnPolicyEstimatorRunner:
                     self.alg.process_env_step(rewards, dones, infos)
                     if it % 20 == 0:
                         obs[:, 10:13] = 0 # standing still data augmentation. Don't learn at these epochs.
-                    if self.policy_cfg["use_estimator"]:
-                        
-                        if self.policy_cfg["rl_end2end"]:
+                    if self.policy_cfg["use_estimation"]:
+                        if self.policy_cfg["implicit_estimation"]:
                             estimated_privileged_obs = self.privileged_obs_estimator(obs_history.clone()).squeeze(0)
                             # print(f"Estimated privileged obs: {estimated_privileged_obs}")
                             obs = torch.cat((obs, estimated_privileged_obs), dim=-1)
@@ -199,12 +198,12 @@ class OnPolicyEstimatorRunner:
                             mse_loss = torch.nn.functional.mse_loss(estimated_privileged_obs, privileged_obs.clone())
                             if it % 1000 == 0:
                                 print(f"MSE error of estimation: {mse_loss.item()}")
-                    if self.policy_cfg["use_estimator"]: #update history
+                    if self.policy_cfg["use_estimation"]: #update history
                         obs_history = torch.cat((obs_history[:, 1:, :], obs[:,self.proception_dims].unsqueeze(1)), dim=1)
                     
                     # print('privi_obs:', privileged_obs)
                     # import pdb; pdb.set_trace()
-                    if self.policy_cfg["learn_estimator"]:#randomly put (history,env factor) into dataset
+                    if self.policy_cfg["learn_estimation"]:#randomly put (history,env factor) into dataset
                         # where_available = torch.where(torch.mean(torch.abs(obs[:,10:12]))>=0.08)
                         rnd_idx = np.random.randint(self.env.num_envs/2, self.env.num_envs, size=128) # 128 is a compromise to GPU memory...
                         obs_history_buffer.append(obs_history[rnd_idx].clone())
@@ -226,7 +225,7 @@ class OnPolicyEstimatorRunner:
                         cur_reward_sum[new_ids] = 0
                         cur_cost_sum[new_ids] = 0
                         cur_episode_length[new_ids] = 0
-                        if self.policy_cfg["use_estimator"]:
+                        if self.policy_cfg["use_estimation"]:
                             obs_history[new_ids,:,:] = 0
                     
                         
@@ -243,7 +242,7 @@ class OnPolicyEstimatorRunner:
             mean_value_loss, mean_surrogate_loss = self.alg.update()
             # mean_value_loss, mean_surrogate_loss = 0,0
             
-            if self.policy_cfg["learn_estimator"] and len(obs_history_buffer) > 0:
+            if self.policy_cfg["learn_estimation"] and len(obs_history_buffer) > 0:
                 for privi_obs_tensor, obs_history_tensor in zip(privileged_obs_buffer, obs_history_buffer):
                     privi_obs_tensor.requires_grad = False
                     estimated_privileged_obs = self.privileged_obs_estimator(obs_history_tensor.clone())
@@ -313,7 +312,7 @@ class OnPolicyEstimatorRunner:
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
         mean_std = self.alg.actor_critic.std.mean()
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))
-        if self.policy_cfg["use_privi_estimation"]:
+        if self.policy_cfg["use_estimation"]:
             self.writer.add_scalar('Loss/privileged_loss', locs['mse_loss'], locs['it'])
         self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])
         self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])
@@ -367,7 +366,7 @@ class OnPolicyEstimatorRunner:
         print(log_string)
 
     def save(self, path, infos=None):
-        if self.policy_cfg["use_estimator"]:
+        if self.policy_cfg["use_estimation"]:
             torch.save({
                 'model_state_dict': self.alg.actor_critic.state_dict(),
                 'optimizer_state_dict': self.alg.optimizer.state_dict(),
@@ -390,7 +389,7 @@ class OnPolicyEstimatorRunner:
         loaded_dict = torch.load(path)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         loaded_dict_privi = loaded_dict
-        if self.policy_cfg["use_privi_estimation"] and load_estimator:
+        if self.policy_cfg["use_estimation"] and load_estimator:
             self.privileged_obs_estimator.load_state_dict(loaded_dict_privi['privi_estimator_state_dict'])
             # if load_optimizer:
             #     self.privileged_obs_optimizer.load_state_dict(loaded_dict['privi_optimizer_state_dict'])

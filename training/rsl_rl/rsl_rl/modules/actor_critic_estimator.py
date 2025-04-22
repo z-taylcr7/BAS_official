@@ -43,7 +43,7 @@ class ActorCriticEstimator(nn.Module):
                         enc_dec_enabled=False,
                         num_latent=12,
                         num_proception_obs=50,
-                        num_privileged_obs=6,
+                        num_privileged_obs=5,
                         num_recon_obs=12,
                         history_len=50,
                         actor_hidden_dims=[256, 256, 256],
@@ -52,9 +52,8 @@ class ActorCriticEstimator(nn.Module):
                         init_noise_std=1.0,
                         **kwargs):
         if kwargs:
-            print("ActorCritic.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs.keys()]))
-        super(ActorCritic, self).__init__()
-
+            print("ActorCriticEstimator.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs.keys()]))
+        super(ActorCriticEstimator,self).__init__()
         activation = get_activation(activation)
 
         mlp_input_dim_a = num_actor_obs

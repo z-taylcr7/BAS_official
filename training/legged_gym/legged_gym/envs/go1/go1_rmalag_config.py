@@ -269,11 +269,11 @@ class Go1TeacherRoughCfgNoPenalty( Go1TeacherRoughCfg ):
 
     class policy( LeggedRobotCfgPPO.policy ):
         decoder_enabled = False #imlicit
-        use_hist = False
-        use_privi_estimation = False
+        use_estimation = False
+        use_estimation = False
         record_privi = False
         latent_dim = 12
-        privileged_dim = 2
+        estimated_dim = 2
 class Go1TeacherRoughCfgPPO( LeggedRobotCfgPPO ):
     runner_class_name = 'TrainTeacherRunner'
     class algorithm( LeggedRobotCfgPPO.algorithm ):
@@ -283,10 +283,10 @@ class Go1TeacherRoughCfgPPO( LeggedRobotCfgPPO ):
         experiment_name = 'go1_teacher_rough'
     class policy( LeggedRobotCfgPPO.policy ):
         use_estimation = False
-        learn_estimation = False # Set this to True to collect dataset for privileged estimation
-        rl_end2end = False
+        learn_estimation = False # Set this to True to collect dataset for estimated estimation
+        implicit_estimation = False
         latent_dim = 12
-        privileged_dim = 5
+        estimated_dim = 5
         use_action_loss = False
 
 class Go1StudentRoughCfgPPO( Go1TeacherRoughCfgPPO ):
@@ -303,10 +303,10 @@ class Go1TeacherRoughCfgPPOLagrangian( LeggedRobotCfgPPO ):
         experiment_name = 'go1_teacher_rough_lag'
     class policy( LeggedRobotCfgPPOLagrangian.policy ):
         use_estimation = False
-        learn_estimation = False # Set this to True to collect dataset for privileged estimation
-        rl_end2end = False
+        learn_estimation = False # Set this to True to collect dataset for estimated estimation
+        implicit_estimation = False
         latent_dim = 12
-        privileged_dim = 5
+        estimated_dim = 5
         use_action_loss = False
 
 class Go1StudentRoughCfgPPOLagrangian( Go1TeacherRoughCfgPPOLagrangian):

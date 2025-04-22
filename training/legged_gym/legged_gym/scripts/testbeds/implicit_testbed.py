@@ -177,7 +177,7 @@ def play(args):
         env_cfg.env.privilege_enable = False
         env_cfg.env.num_observations = 61
         train_cfg.policy.decoder_enabled=True
-        train_cfg.policy.use_privi_estimation = False
+        train_cfg.policy.use_estimation = False
         exim=True
     else:
         print('No EXIM')
@@ -185,7 +185,7 @@ def play(args):
         env_cfg.env.privilege_enable = True
         env_cfg.env.num_observations = 61+4
         train_cfg.policy.decoder_enabled=False
-        train_cfg.policy.use_privi_estimation = True
+        train_cfg.policy.use_estimation = True
 
 
     env_cfg.domain_rand.randomize_yaw = False

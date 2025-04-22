@@ -40,7 +40,7 @@ import torch
 from rsl_rl.algorithms import PPOLagrangian
 from rsl_rl.modules import ActorCriticRecurrent, StudentActorCriticCost, TeacherActorCriticCost
 from rsl_rl.env import VecEnv
-from tcn_encoder import TcnEncoder
+from rsl_rl.runners.tcn_encoder import TcnEncoder
 
 
 class TrainStudentRunnerCost:
