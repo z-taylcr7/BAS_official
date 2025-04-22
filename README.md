@@ -168,7 +168,7 @@ Please read through the whole README.md before cloning the repo.
 
 ### Deployment Scripts
 1. `roscore`: Activate ROS Noetic Envrioment
-2. `cd src/abs_src/`: Enter the ABS scripts file
+2. `cd src/bas_src/`: Enter the ABS scripts file
 3. `python publisher_depthimg_linvel.py`: Publish ray prediction results and odometry results for navigation goals
 4. `python led_control_ros.py`: Control the two LED lights based on RA values
 5. `python depth_obstacle_depth_goal_ros.py`: Activate the Go1 using the agile policy and the recovery policy
