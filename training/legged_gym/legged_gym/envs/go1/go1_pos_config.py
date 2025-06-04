@@ -37,6 +37,7 @@ class Go1PosRoughCfg( LeggedRobotPosCfg ):
         num_observations = 61
         num_envs = 1280
         episode_length_s = 9 # episode length in seconds  # will be randomized in [s-minus, s]
+        privilege_enable = False
 
     class init_state( LeggedRobotPosCfg.init_state ):
         pos = [0.0, 0.0, 0.37] # x,y,z [m]
@@ -135,6 +136,8 @@ class Go1PosRoughCfg( LeggedRobotPosCfg ):
         stand_bias3 = [0.0, 0.0, 0.0]
         erfi = True
         erfi_torq_lim = 7.0/9  # per level, curriculum
+        randomize_ctrl_delay = False
+        ctrl_delay_step_range = [0, 2]
 
     class sensors:
         class ray2d:

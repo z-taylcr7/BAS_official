@@ -63,9 +63,8 @@ def play(args, name):
     env_cfg.domain_rand.randomize_dof_bias = False
     env_cfg.domain_rand.erfi = False
     env_cfg.domain_rand.randomize_base_mass = True
-    args.payload = 0.0 if args.payload is None else args.payload
     # env_cfg.domain_rand.added_mass_range = [args.payload, args.payload]
-    env_cfg.domain_rand.added_mass_range = [3.0, 3.0]
+    env_cfg.domain_rand.added_mass_range = [0.0, 3.0]
     env_cfg.domain_rand.external_push_force = False
     env_cfg.domain_rand.randomize_kp_kd = False
     env_cfg.domain_rand.randomize_timer_minus = 0.0
@@ -100,7 +99,7 @@ def play(args, name):
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     env.debug_viz = True
     obs = env.get_observations()
-    latent = torch.zeros((env_cfg.env.num_envs, train_cfg.policy.latent_dim+train_cfg.policy.privileged_dim), device=env.device)
+    latent = torch.zeros((env_cfg.env.num_envs, train_cfg.policy.latent_dim+train_cfg.policy.estimated_dim), device=env.device)
     # if play_mode==2: obs = torch.cat((obs,latent),dim=-1)
     env.terrain_levels[:] = 9
     # load policy
@@ -171,11 +170,11 @@ def play(args, name):
     pred_fric_log = []
     gt_fric_log = []
     mean_err_log = []
-    privileged_dim = train_cfg.policy.privileged_dim
+    estimated_dim = train_cfg.policy.estimated_dim
     latent_dim = train_cfg.policy.latent_dim
-    estimated_pr = torch.zeros((env_cfg.env.num_envs, privileged_dim), device=env.device)
+    estimated_pr = torch.zeros((env_cfg.env.num_envs, estimated_dim), device=env.device)
 
-    pr=torch.zeros((env_cfg.env.num_envs, privileged_dim), device=env.device)
+    pr=torch.zeros((env_cfg.env.num_envs, estimated_dim), device=env.device)
     for i in range(20*int(env.max_episode_length)):
         
         if play_mode==2:
@@ -193,7 +192,7 @@ def play(args, name):
             loss_explicit = torch.nn.functional.mse_loss(estimated_pr, pr)
             # print('explicit loss: ', loss_explicit)
             # print('gt: ', pr[0])
-            # print('pred: ', latent[0,-privileged_dim:])
+            # print('pred: ', latent[0,-estimated_dim:])
 
         obs = torch.cat((obs, estimated_pr), dim=-1)
         actions = policy(obs.detach())
@@ -224,7 +223,7 @@ def play(args, name):
                 x = torch.cat((x[:,:,0:13],x[:,:,14:50]),dim=-1)
                 x = x.flatten(-2)
                 x = torch.cat((x,t),dim=-1)
-                estimated_pr_temp = estimator(x)
+                estimated_pr_temp = estimator(obs_history.flatten(-2))
                 # # if multi-head
                 # x_mass = self.fc_mass(x)
                 # # x_pushxy = self.fc_pushxy(x)
@@ -245,7 +244,7 @@ def play(args, name):
             # push_err = torch.mean(torch.abs(estimated_pr[:,2:]-pr[:,2:])).cpu().numpy()*10
             # kpkd_err = torch.mean(torch.abs(estimated_pr[:,7:9]-pr[:,7:9])).cpu().numpy()/10
             # mean_err = np.array([mass_err, push_err, vel_err, fric_err])
-            if play_mode==1: obs = torch.cat((obs[:,:-train_cfg.policy.privileged_dim], estimated_pr), dim=-1) # using estimated added mass as policy input
+            if play_mode==1: obs = torch.cat((obs[:,:-train_cfg.policy.estimated_dim], estimated_pr), dim=-1) # using estimated added mass as policy input
             # obs = torch.cat((obs[:,:-1], 10.0*torch.ones_like(estimated_pr)), dim=-1) # using estimated added mass as policy input
             if i < stop_rew_log:
                 # print('Estimated privilege: ', estimated_pr[0].cpu().numpy())
@@ -254,8 +253,8 @@ def play(args, name):
                 # print('push_error: ', push_err, 'kpkd_error: ', kpkd_err)
                 pass
             if i>50 and i < stop_rew_log:
-                pred_mass_log.append(estimated_pr[1][0].flatten().cpu().numpy())
-                gt_mass_log.append(pr[1][0].cpu().numpy())
+                pred_mass_log.append(estimated_pr[0][0].flatten().cpu().numpy())
+                gt_mass_log.append(pr[0][0].cpu().numpy())
                 # pred_com_log.append(estimated_pr[0][1:4].flatten().cpu().numpy()/10.0)
                 # gt_com_log.append(pr[0][1:4].cpu().numpy()/10.0)
                 pred_fric_log.append(estimated_pr[0][-1].flatten().cpu().numpy())
